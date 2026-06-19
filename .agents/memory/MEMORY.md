@@ -1,0 +1,1 @@
+- [QTecnico backend architecture](qtecnico-backend.md) — Express+PostgreSQL backend added; key decisions on auth, seeding, and full-replace update strategy.

@@ -13,8 +13,7 @@ import {
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/ChatGPT_Image_8_de_jun._de_2026__11_15_09.png";
 import { Screen, OrderStatus, ServiceOrder, Client, Attendance, AttendancePhoto, PaymentStatus } from "./types";
-import { INITIAL_ORDERS } from "./ordersData";
-import { INITIAL_CLIENTS } from "./clientsData";
+import { api } from "./api";
 
 /* ─── Configs ───────────────────────────────────────────────── */
 
@@ -168,8 +167,8 @@ function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("login");
   const [activeTab, setActiveTab] = useState<"orders" | "clients" | "financeiro" | "profile">("orders");
-  const [orders, setOrders] = useState<ServiceOrder[]>(INITIAL_ORDERS);
-  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
+  const [orders, setOrders] = useState<ServiceOrder[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<OrderStatus | "all">("all");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -186,20 +185,89 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleLogin = () => {
-    if (loginEmail === "lucas.qtech@gmail.com" && loginPassword === "123456") {
-      setScreen("orders"); setActiveTab("orders");
-    } else setLoginError(true);
+  const loadData = async () => {
+    const [fetchedOrders, fetchedClients, user] = await Promise.all([
+      api.getOrders(), api.getClients(), api.getMe(),
+    ]);
+    setOrders(fetchedOrders);
+    setClients(fetchedClients);
+    setTechName(user.name);
+    setTechRole(user.role);
+    setTechPhone(user.phone);
+    setTechEmail(user.email);
   };
 
-  const handleUpdateOrder = (updated: ServiceOrder) => {
-    setOrders(prev => prev.map(o => o.id === updated.id ? updated : o));
-    setSelectedOrder(updated);
+  useEffect(() => {
+    const token = localStorage.getItem("qtecnico_token");
+    if (token) {
+      loadData()
+        .then(() => { setScreen("orders"); setActiveTab("orders"); })
+        .catch(() => localStorage.removeItem("qtecnico_token"));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      const { token, user } = await api.login(loginEmail, loginPassword);
+      localStorage.setItem("qtecnico_token", token);
+      setTechName(user.name); setTechRole(user.role);
+      setTechPhone(user.phone); setTechEmail(user.email);
+      const [fetchedOrders, fetchedClients] = await Promise.all([api.getOrders(), api.getClients()]);
+      setOrders(fetchedOrders);
+      setClients(fetchedClients);
+      setScreen("orders"); setActiveTab("orders"); setLoginError(false);
+    } catch {
+      setLoginError(true);
+    }
   };
 
-  const handleAddOrder = (o: ServiceOrder) => {
-    setOrders(prev => [o, ...prev]);
-    setShowAddModal(false);
+  const handleUpdateOrder = async (updated: ServiceOrder) => {
+    try {
+      const saved = await api.updateOrder(updated);
+      setOrders(prev => prev.map(o => o.id === saved.id ? saved : o));
+      setSelectedOrder(saved);
+    } catch (e) { console.error("Erro ao atualizar OS:", e); }
+  };
+
+  const handleAddOrder = async (o: ServiceOrder) => {
+    try {
+      const created = await api.createOrder(o);
+      setOrders(prev => [created, ...prev]);
+      setShowAddModal(false);
+    } catch (e) { console.error("Erro ao criar OS:", e); }
+  };
+
+  const handleSaveClient = async (c: Client) => {
+    try {
+      if (clients.find(x => x.id === c.id)) {
+        const updated = await api.updateClient(c);
+        setClients(prev => prev.map(x => x.id === updated.id ? updated : x));
+      } else {
+        const created = await api.createClient(c);
+        setClients(prev => [created, ...prev]);
+      }
+    } catch (e) { console.error("Erro ao salvar cliente:", e); }
+  };
+
+  const handleDeleteClient = async (id: string) => {
+    try {
+      await api.deleteClient(id);
+      setClients(prev => prev.filter(c => c.id !== id));
+    } catch (e) { console.error("Erro ao deletar cliente:", e); }
+  };
+
+  const handleSaveProfile = async () => {
+    try {
+      await api.updateProfile({ name: techName, role: techRole, phone: techPhone, email: techEmail });
+    } catch (e) { console.error("Erro ao salvar perfil:", e); }
+    setEditingProfile(false);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("qtecnico_token");
+    setOrders([]); setClients([]);
+    setScreen("login");
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -305,7 +373,7 @@ export default function App() {
 
             {/* Drawer footer */}
             <div className="px-3 pb-8 flex-shrink-0 border-t border-white/10 pt-3">
-              <button onClick={() => { setDrawerOpen(false); setScreen("login"); }}
+              <button onClick={() => { setDrawerOpen(false); handleLogout(); }}
                 className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-left transition-all"
                 style={{ color: "rgba(255,255,255,0.6)" }}>
                 <LogOut size={20} />
@@ -324,10 +392,10 @@ export default function App() {
             onFilterChange={s => setFilterStatus(s)} onSelectOrder={setSelectedOrder} />
         )}
         {activeTab === "clients" && (
-          <ClientsTab clients={clients} orders={orders} onUpdate={setClients} />
+          <ClientsTab clients={clients} orders={orders} onSave={handleSaveClient} onDelete={handleDeleteClient} />
         )}
         {activeTab === "financeiro" && (
-          <FinanceiroTab orders={orders} onUpdate={o => setOrders(orders.map(x => x.id === o.id ? o : x))} />
+          <FinanceiroTab orders={orders} onUpdate={handleUpdateOrder} />
         )}
         {activeTab === "profile" && (
           <ProfileTab name={techName} role={techRole} phone={techPhone} email={techEmail}
@@ -336,7 +404,7 @@ export default function App() {
             onNameChange={setTechName} onRoleChange={setTechRole}
             onPhoneChange={setTechPhone} onEmailChange={setTechEmail}
             onPhotoClick={() => fileInputRef.current?.click()}
-            onSave={() => setEditingProfile(false)} />
+            onSave={handleSaveProfile} />
         )}
 
         {activeTab === "orders" && (
@@ -1143,7 +1211,7 @@ function daysSince(date: Date | null): number | null {
   return Math.floor((Date.now() - date.getTime()) / 86400000);
 }
 
-function ClientsTab({ clients, orders, onUpdate }: { clients: Client[]; orders: ServiceOrder[]; onUpdate: (c: Client[]) => void }) {
+function ClientsTab({ clients, orders, onSave, onDelete }: { clients: Client[]; orders: ServiceOrder[]; onSave: (c: Client) => void; onDelete: (id: string) => void }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ContactRisk | "all">("all");
   const [editClient, setEditClient] = useState<Client | null>(null);
@@ -1156,12 +1224,11 @@ function ClientsTab({ clients, orders, onUpdate }: { clients: Client[]; orders: 
   }, []);
 
   const saveClient = (c: Client) => {
-    if (clients.find(x => x.id === c.id)) onUpdate(clients.map(x => x.id === c.id ? c : x));
-    else onUpdate([c, ...clients]);
+    onSave(c);
     setShowModal(false); setEditClient(null);
   };
 
-  const deleteClient = (id: string) => onUpdate(clients.filter(c => c.id !== id));
+  const deleteClient = (id: string) => onDelete(id);
 
   // Enrich each client with CRM data
   const enriched = clients.map(c => {
@@ -1370,7 +1437,10 @@ function AddOrderModal({ clients, orders, onAdd, onClose }: {
 
   const handleAdd = () => {
     if (!selectedClient || !type.trim()) return;
-    const id = `OS-2406-${String(orders.length + 1).padStart(3, "0")}`;
+    const now = new Date();
+    const ym = `${String(now.getFullYear()).slice(2)}${String(now.getMonth()+1).padStart(2,'0')}`;
+    const rand = Math.random().toString(36).slice(2,5).toUpperCase();
+    const id = `OS-${ym}-${rand}`;
     onAdd({
       id, clientId: selectedClient.id, client: selectedClient.name,
       address: selectedClient.address, phone: selectedClient.phone,
@@ -1378,6 +1448,7 @@ function AddOrderModal({ clients, orders, onAdd, onClose }: {
       priority, description,
       clientValue: parseFloat(clientValue.replace(",", ".")) || 0,
       expenses: [], attendances: [],
+      paymentStatus: "pending",
     });
   };
 
