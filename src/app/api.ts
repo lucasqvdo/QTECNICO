@@ -29,6 +29,7 @@ export interface UserProfile {
   role: string;
   phone: string;
   email: string;
+  photoUrl?: string | null;
 }
 
 export const api = {
@@ -36,6 +37,12 @@ export const api = {
     request<{ token: string; user: UserProfile }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    }),
+
+  register: (name: string, email: string, password: string) =>
+    request<{ token: string; user: UserProfile }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
     }),
 
   getMe: () => request<UserProfile>('/users/me'),

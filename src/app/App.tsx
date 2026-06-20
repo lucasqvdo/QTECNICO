@@ -185,16 +185,21 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const applyUser = (user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null }) => {
+    setTechName(user.name);
+    setTechRole(user.role);
+    setTechPhone(user.phone);
+    setTechEmail(user.email);
+    if (user.photoUrl) setProfilePhoto(user.photoUrl);
+  };
+
   const loadData = async () => {
     const [fetchedOrders, fetchedClients, user] = await Promise.all([
       api.getOrders(), api.getClients(), api.getMe(),
     ]);
     setOrders(fetchedOrders);
     setClients(fetchedClients);
-    setTechName(user.name);
-    setTechRole(user.role);
-    setTechPhone(user.phone);
-    setTechEmail(user.email);
+    applyUser(user);
   };
 
   useEffect(() => {
@@ -207,19 +212,27 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const afterAuth = async (token: string, user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null }) => {
+    localStorage.setItem("qtecnico_token", token);
+    applyUser(user);
+    const [fetchedOrders, fetchedClients] = await Promise.all([api.getOrders(), api.getClients()]);
+    setOrders(fetchedOrders);
+    setClients(fetchedClients);
+    setScreen("orders"); setActiveTab("orders"); setLoginError(false);
+  };
+
   const handleLogin = async () => {
     try {
       const { token, user } = await api.login(loginEmail, loginPassword);
-      localStorage.setItem("qtecnico_token", token);
-      setTechName(user.name); setTechRole(user.role);
-      setTechPhone(user.phone); setTechEmail(user.email);
-      const [fetchedOrders, fetchedClients] = await Promise.all([api.getOrders(), api.getClients()]);
-      setOrders(fetchedOrders);
-      setClients(fetchedClients);
-      setScreen("orders"); setActiveTab("orders"); setLoginError(false);
+      await afterAuth(token, user);
     } catch {
       setLoginError(true);
     }
+  };
+
+  const handleRegister = async (name: string, email: string, password: string) => {
+    const { token, user } = await api.register(name, email, password);
+    await afterAuth(token, user);
   };
 
   const handleUpdateOrder = async (updated: ServiceOrder) => {
@@ -259,7 +272,7 @@ export default function App() {
 
   const handleSaveProfile = async () => {
     try {
-      await api.updateProfile({ name: techName, role: techRole, phone: techPhone, email: techEmail });
+      await api.updateProfile({ name: techName, role: techRole, phone: techPhone, email: techEmail, photoUrl: profilePhoto });
     } catch (e) { console.error("Erro ao salvar perfil:", e); }
     setEditingProfile(false);
   };
@@ -272,7 +285,10 @@ export default function App() {
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setProfilePhoto(URL.createObjectURL(file));
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setProfilePhoto(ev.target?.result as string);
+    reader.readAsDataURL(file);
   };
 
   const filteredOrders = orders.filter(o => {
@@ -292,7 +308,7 @@ export default function App() {
     return <LoginScreen email={loginEmail} password={loginPassword} error={loginError}
       onEmailChange={v => { setLoginEmail(v); setLoginError(false); }}
       onPasswordChange={v => { setLoginPassword(v); setLoginError(false); }}
-      onLogin={handleLogin} />;
+      onLogin={handleLogin} onRegister={handleRegister} />;
 
   const navItems: { key: typeof activeTab; label: string; icon: React.ReactNode }[] = [
     { key: "orders",     label: "Ordens de Serviço", icon: <ClipboardList size={20} /> },
@@ -438,14 +454,22 @@ export default function App() {
 
 /* ─── Login ─────────────────────────────────────────────────── */
 
-function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin }: {
+function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin, onRegister }: {
   email: string; password: string; error: boolean;
-  onEmailChange: (v: string) => void; onPasswordChange: (v: string) => void; onLogin: () => void;
+  onEmailChange: (v: string) => void; onPasswordChange: (v: string) => void;
+  onLogin: () => void; onRegister: (name: string, email: string, password: string) => Promise<void>;
 }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [remember, setRemember] = useState(() => localStorage.getItem("qtecnico_remember") === "true");
   const [showPass, setShowPass] = useState(false);
+  // Register fields
+  const [regName, setRegName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPass, setRegPass] = useState("");
+  const [regConfirm, setRegConfirm] = useState("");
+  const [regError, setRegError] = useState("");
+  const [regLoading, setRegLoading] = useState(false);
 
-  // On mount: restore saved credentials if remember was on
   useEffect(() => {
     if (localStorage.getItem("qtecnico_remember") === "true") {
       const savedEmail = localStorage.getItem("qtecnico_email") || "";
@@ -469,6 +493,22 @@ function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, 
     onLogin();
   };
 
+  const handleRegister = async () => {
+    setRegError("");
+    if (!regName.trim()) return setRegError("Informe seu nome.");
+    if (!regEmail.trim()) return setRegError("Informe o e-mail.");
+    if (regPass.length < 6) return setRegError("A senha deve ter no mínimo 6 caracteres.");
+    if (regPass !== regConfirm) return setRegError("As senhas não coincidem.");
+    setRegLoading(true);
+    try {
+      await onRegister(regName.trim(), regEmail.trim(), regPass);
+    } catch (e: any) {
+      setRegError(e.message || "Erro ao criar conta.");
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
   const toggleRemember = () => {
     const next = !remember;
     setRemember(next);
@@ -479,81 +519,136 @@ function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, 
     }
   };
 
+  const inputCls = "w-full px-4 py-3 rounded-xl bg-secondary text-foreground placeholder-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all";
+
   return (
     <div className="min-h-screen bg-primary flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="flex-1 flex flex-col justify-end px-6 pb-0">
         <div className="mb-10">
-          <h1 className="text-3xl font-bold text-white mb-1">Bem-vindo!</h1>
-          <p className="text-white/50 text-sm">Acesse sua conta para continuar.</p>
+          <h1 className="text-3xl font-bold text-white mb-1">
+            {mode === "login" ? "Bem-vindo!" : "Criar conta"}
+          </h1>
+          <p className="text-white/50 text-sm">
+            {mode === "login" ? "Acesse sua conta para continuar." : "Preencha os dados para se cadastrar."}
+          </p>
         </div>
       </div>
-      <div className="bg-background rounded-t-3xl px-6 pt-8 pb-10">
+
+      <div className="bg-background rounded-t-3xl px-6 pt-8 pb-10 overflow-y-auto">
         <div className="flex flex-col items-center mb-6">
-          <ImageWithFallback src={logoImg} alt="QTecnico logo" className="w-24 h-24 object-contain" />
+          <ImageWithFallback src={logoImg} alt="QTecnico logo" className="w-20 h-20 object-contain" />
           <h2 className="text-2xl font-bold tracking-tight mt-2" style={{ color: "var(--primary)" }}>
             Q<span style={{ color: "var(--accent)" }}>Tecnico</span>
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">Gestão de Ordens de Serviço</p>
         </div>
 
-        <p className="text-base font-semibold text-foreground mb-4">Entrar na sua conta</p>
+        {mode === "login" ? (
+          <>
+            <p className="text-base font-semibold text-foreground mb-4">Entrar na sua conta</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
+                <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
+                  placeholder="seu@email.com" className={inputCls}
+                  onKeyDown={e => e.key === "Enter" && handleLogin()} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
+                <div className="relative">
+                  <input type={showPass ? "text" : "password"} value={password} onChange={e => onPasswordChange(e.target.value)}
+                    placeholder="••••••••" className={`${inputCls} pr-12`}
+                    onKeyDown={e => e.key === "Enter" && handleLogin()} />
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
+                    {showPass ? "Ocultar" : "Ver"}
+                  </button>
+                </div>
+              </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
-            <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
-              placeholder="lucas.qtech@gmail.com"
-              className="w-full px-4 py-3 rounded-xl bg-secondary text-foreground placeholder-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-              onKeyDown={e => e.key === "Enter" && handleLogin()} />
-          </div>
+              {error && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
+                  <AlertCircle size={14} /><span>E-mail ou senha incorretos.</span>
+                </div>
+              )}
 
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
-            <div className="relative">
-              <input type={showPass ? "text" : "password"} value={password} onChange={e => onPasswordChange(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-3 pr-12 rounded-xl bg-secondary text-foreground placeholder-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-                onKeyDown={e => e.key === "Enter" && handleLogin()} />
-              <button type="button" onClick={() => setShowPass(!showPass)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
-                {showPass ? "Ocultar" : "Ver"}
+              <button type="button" onClick={toggleRemember} className="flex items-center gap-3 w-full group">
+                <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{ borderColor: remember ? "var(--primary)" : "var(--border)", background: remember ? "var(--primary)" : "transparent" }}>
+                  {remember && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                </div>
+                <span className="text-sm text-foreground group-hover:text-primary transition-colors">Lembrar meus dados</span>
+              </button>
+
+              <button onClick={handleLogin}
+                className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
+                Entrar
+              </button>
+
+              <button onClick={() => setMode("register")}
+                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
+                style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
+                Criar conta
+              </button>
+
+              <p className="text-xs text-muted-foreground text-center">
+                Demo: <span className="font-mono">lucas.qtech@gmail.com</span> / <span className="font-mono">123456</span>
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-base font-semibold text-foreground mb-4">Cadastrar nova conta</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Nome completo</label>
+                <input type="text" value={regName} onChange={e => setRegName(e.target.value)}
+                  placeholder="João Silva" className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
+                <input type="email" value={regEmail} onChange={e => setRegEmail(e.target.value)}
+                  placeholder="seu@email.com" className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
+                <div className="relative">
+                  <input type={showPass ? "text" : "password"} value={regPass} onChange={e => setRegPass(e.target.value)}
+                    placeholder="Mínimo 6 caracteres" className={`${inputCls} pr-12`} />
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
+                    {showPass ? "Ocultar" : "Ver"}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Confirmar senha</label>
+                <input type={showPass ? "text" : "password"} value={regConfirm} onChange={e => setRegConfirm(e.target.value)}
+                  placeholder="Repita a senha" className={inputCls}
+                  onKeyDown={e => e.key === "Enter" && handleRegister()} />
+              </div>
+
+              {regError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
+                  <AlertCircle size={14} /><span>{regError}</span>
+                </div>
+              )}
+
+              <button onClick={handleRegister} disabled={regLoading}
+                className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-60"
+                style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
+                {regLoading ? "Criando conta..." : "Criar conta"}
+              </button>
+
+              <button onClick={() => { setMode("login"); setRegError(""); }}
+                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
+                style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
+                Voltar para o login
               </button>
             </div>
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
-              <AlertCircle size={14} /><span>E-mail ou senha incorretos.</span>
-            </div>
-          )}
-
-          {/* Lembrar de mim */}
-          <button type="button" onClick={toggleRemember}
-            className="flex items-center gap-3 w-full group">
-            <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all"
-              style={{
-                borderColor: remember ? "var(--primary)" : "var(--border)",
-                background: remember ? "var(--primary)" : "transparent",
-              }}>
-              {remember && (
-                <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                  <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </div>
-            <span className="text-sm text-foreground group-hover:text-primary transition-colors">Lembrar meus dados</span>
-          </button>
-
-          <button onClick={handleLogin}
-            className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
-            style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
-            Entrar
-          </button>
-
-          <p className="text-xs text-muted-foreground text-center">
-            Demo: <span className="font-mono">lucas.qtech@gmail.com</span> / <span className="font-mono">123456</span>
-          </p>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
