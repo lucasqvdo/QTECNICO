@@ -74,7 +74,7 @@ function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") 
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"/>
-  <title>OS ${order.id} — QTECNICO</title>
+  <title>OS ${order.id} — QTecnico</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:Arial,sans-serif;color:#0D1B2E;padding:32px;font-size:14px;}
@@ -96,7 +96,7 @@ function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") 
 <body>
   <div class="header">
     <div>
-      <div class="logo-text">Q<span>TECNICO</span></div>
+      <div class="logo-text">Q<span>Tecnico</span></div>
       <div style="color:#64748B;font-size:12px;margin-top:2px;">Gestão de Ordens de Serviço</div>
     </div>
     <div style="text-align:right;">
