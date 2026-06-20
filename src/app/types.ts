@@ -48,4 +48,6 @@ export interface ServiceOrder {
   attendances: Attendance[];
   paymentStatus: PaymentStatus;
   paidDate?: string;
+  paidAmount?: number;
+  clientSignature?: string;
 }

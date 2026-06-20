@@ -65,6 +65,8 @@ async function fetchOrders(userId: number) {
     paidDate: o.paid_date
       ? (o.paid_date instanceof Date ? o.paid_date.toISOString().split('T')[0] : String(o.paid_date).split('T')[0])
       : undefined,
+    paidAmount: o.paid_amount != null ? parseFloat(o.paid_amount) : undefined,
+    clientSignature: o.client_signature ?? undefined,
     expenses: expensesByOrder[o.id] || [],
     attendances: attsByOrder[o.id] || [],
   }));
@@ -90,11 +92,11 @@ router.post('/', requireAuth, async (req, res) => {
 
   try {
     await pool.query(
-      `INSERT INTO orders (id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      `INSERT INTO orders (id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date, paid_amount, client_signature)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
       [id, userId, o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status || 'pending',
        o.date, o.priority || 'medium', o.description || '', o.clientValue || 0,
-       o.paymentStatus || 'pending', o.paidDate || null]
+       o.paymentStatus || 'pending', o.paidDate || null, o.paidAmount ?? null, o.clientSignature ?? null]
     );
 
     for (const e of (o.expenses || [])) {
@@ -120,11 +122,13 @@ router.put('/:id', requireAuth, async (req, res) => {
   try {
     await pool.query(
       `UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6,
-       date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12
-       WHERE id=$13 AND user_id=$14`,
+       date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12,
+       paid_amount=$13, client_signature=$14
+       WHERE id=$15 AND user_id=$16`,
       [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status,
        o.date, o.priority, o.description || '', o.clientValue,
-       o.paymentStatus, o.paidDate || null, id, userId]
+       o.paymentStatus, o.paidDate || null,
+       o.paidAmount ?? null, o.clientSignature ?? null, id, userId]
     );
 
     await pool.query('DELETE FROM expenses WHERE order_id = $1', [id]);

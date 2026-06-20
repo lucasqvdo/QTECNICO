@@ -4,7 +4,7 @@ import {
   AlertCircle, XCircle, Camera, ArrowLeft, Search, MapPin, Phone, Mail,
   Calendar, Wrench, X, DollarSign, TrendingUp, TrendingDown, Trash2,
   Receipt, Users, FileText, Play, Square, Image, Download, Edit2, Save,
-  BarChart2, BadgeCheck, Hourglass, CircleDollarSign,
+  BarChart2, BadgeCheck, Hourglass, CircleDollarSign, PenLine,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -768,6 +768,90 @@ function OrderCard({ order, onSelect }: { order: ServiceOrder; onSelect: (o: Ser
   );
 }
 
+/* ─── Signature Pad ──────────────────────────────────────────── */
+
+function SignaturePad({ onSave, onCancel }: { onSave: (dataUrl: string) => void; onCancel: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasStrokes, setHasStrokes] = useState(false);
+
+  const getCtx = () => {
+    const c = canvasRef.current;
+    if (!c) return null;
+    const ctx = c.getContext("2d");
+    if (ctx) { ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; }
+    return ctx;
+  };
+
+  const getXY = (e: React.MouseEvent | React.TouchEvent) => {
+    const c = canvasRef.current!;
+    const rect = c.getBoundingClientRect();
+    const scaleX = c.width / rect.width;
+    const scaleY = c.height / rect.height;
+    if ("touches" in e) {
+      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+    }
+    return { x: ((e as React.MouseEvent).clientX - rect.left) * scaleX, y: ((e as React.MouseEvent).clientY - rect.top) * scaleY };
+  };
+
+  const onStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const ctx = getCtx(); if (!ctx) return;
+    const { x, y } = getXY(e);
+    ctx.beginPath(); ctx.moveTo(x, y);
+    setIsDrawing(true); setHasStrokes(true);
+  };
+
+  const onMove = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (!isDrawing) return;
+    const ctx = getCtx(); if (!ctx) return;
+    const { x, y } = getXY(e);
+    ctx.lineTo(x, y); ctx.stroke();
+  };
+
+  const onEnd = () => setIsDrawing(false);
+
+  const clear = () => {
+    const c = canvasRef.current; if (!c) return;
+    c.getContext("2d")?.clearRect(0, 0, c.width, c.height);
+    setHasStrokes(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-border bg-white" style={{ touchAction: "none" }}>
+        <canvas ref={canvasRef} width={600} height={200}
+          className="w-full block" style={{ cursor: "crosshair" }}
+          onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
+          onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}
+        />
+        {!hasStrokes && (
+          <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground pointer-events-none select-none">
+            Assine aqui
+          </p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={clear}
+          className="px-3 py-2 rounded-xl text-xs font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
+          Limpar
+        </button>
+        <button onClick={onCancel}
+          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
+          Cancelar
+        </button>
+        <button onClick={() => { const c = canvasRef.current; if (c) onSave(c.toDataURL("image/png")); }}
+          disabled={!hasStrokes}
+          className="flex-1 py-2 rounded-xl text-xs font-semibold text-white transition-all active:scale-95 disabled:opacity-40"
+          style={{ background: "var(--primary)" }}>
+          Salvar assinatura
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Order Detail ───────────────────────────────────────────── */
 
 function OrderDetail({ order, client, techName, onClose, onUpdate }: {
@@ -782,6 +866,10 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
   const [pendingDesc, setPendingDesc] = useState<string | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<AttendancePhoto[]>([]);
   const photoRef = useRef<HTMLInputElement>(null);
+  const [showSigPad, setShowSigPad] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [payAmt, setPayAmt] = useState("");
+  const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
 
   useEffect(() => {
     if (!timerActive || !timerStart) return;
@@ -886,6 +974,37 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
         <div className="bg-card border border-border rounded-2xl p-4">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Descrição</h3>
           <p className="text-sm text-foreground leading-relaxed">{order.description}</p>
+        </div>
+
+        {/* Assinatura do cliente */}
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Assinatura do cliente</h3>
+          {order.clientSignature ? (
+            <div>
+              <img src={order.clientSignature} alt="Assinatura do cliente"
+                className="w-full max-h-28 object-contain bg-white rounded-xl border border-border p-2" />
+              <div className="flex gap-3 mt-2">
+                <button onClick={() => setShowSigPad(true)}
+                  className="text-xs text-primary font-semibold hover:underline transition-colors">
+                  Refazer
+                </button>
+                <button onClick={() => onUpdate({ ...order, clientSignature: undefined })}
+                  className="text-xs text-destructive font-semibold hover:underline transition-colors">
+                  Remover
+                </button>
+              </div>
+            </div>
+          ) : showSigPad ? (
+            <SignaturePad
+              onSave={dataUrl => { onUpdate({ ...order, clientSignature: dataUrl }); setShowSigPad(false); }}
+              onCancel={() => setShowSigPad(false)}
+            />
+          ) : (
+            <button onClick={() => setShowSigPad(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground">
+              <PenLine size={15} /> Coletar assinatura do cliente
+            </button>
+          )}
         </div>
 
         {/* ── Atendimento ──────────────────────────────────────── */}
@@ -1032,6 +1151,66 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
                 <Plus size={13} /> Adicionar despesa
               </button>
             </div>
+          </div>
+
+          {/* Pagamento recebido */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Pagamento</p>
+            {order.paymentStatus === "paid" ? (
+              <div className="rounded-xl p-3 border border-green-200 bg-green-50 space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BadgeCheck size={16} className="text-green-600 flex-shrink-0" />
+                    <span className="text-sm font-semibold text-green-700">Recebido</span>
+                  </div>
+                  <button onClick={() => onUpdate({ ...order, paymentStatus: "pending", paidDate: undefined, paidAmount: undefined })}
+                    className="text-xs text-red-500 font-semibold hover:text-red-700 transition-colors">
+                    Desfazer
+                  </button>
+                </div>
+                {order.paidAmount != null && (
+                  <p className="text-xs text-green-600 ml-6">Valor: <span className="font-semibold font-mono">{fmt(order.paidAmount)}</span></p>
+                )}
+                {order.paidDate && (
+                  <p className="text-xs text-green-600 ml-6">Data: {new Date(order.paidDate + "T12:00:00").toLocaleDateString("pt-BR")}</p>
+                )}
+              </div>
+            ) : showPaymentForm ? (
+              <div className="border border-dashed border-border rounded-xl p-3 space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor recebido (R$)</label>
+                  <input type="number" value={payAmt} onChange={e => setPayAmt(e.target.value)}
+                    placeholder={String(order.clientValue || "0")}
+                    className="w-full px-3 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Data do recebimento</label>
+                  <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowPaymentForm(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
+                    Cancelar
+                  </button>
+                  <button onClick={() => {
+                    const amount = parseFloat(payAmt.replace(",", "."));
+                    onUpdate({ ...order, paymentStatus: "paid", paidDate: payDate, paidAmount: isNaN(amount) ? order.clientValue : amount });
+                    setShowPaymentForm(false);
+                  }}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
+                    style={{ background: "#15803D" }}>
+                    Confirmar recebimento
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setPayAmt(String(order.clientValue || "")); setPayDate(new Date().toISOString().split("T")[0]); setShowPaymentForm(true); }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
+                style={{ background: "#DCFCE7", color: "#15803D" }}>
+                <BadgeCheck size={15} /> Registrar recebimento
+              </button>
+            )}
           </div>
         </div>
 
@@ -1243,7 +1422,7 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="font-bold text-sm text-amber-700">{fmt(o.clientValue)}</span>
                     <button
-                      onClick={() => onUpdate({ ...o, paymentStatus: "paid", paidDate: new Date().toISOString().split("T")[0] })}
+                      onClick={() => onUpdate({ ...o, paymentStatus: "paid", paidDate: new Date().toISOString().split("T")[0], paidAmount: o.clientValue })}
                       className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all active:scale-95"
                       style={{ background: "#DCFCE7", color: "#15803D" }}>
                       Receber

@@ -150,6 +150,10 @@ async function initDb() {
       console.log('✅ Dados iniciais inseridos');
     }
 
+    // Migrations para colunas novas
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_signature TEXT`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2)`);
+
     console.log('✅ Banco de dados pronto');
   } catch (e) {
     console.error('❌ Erro ao inicializar banco:', e);
