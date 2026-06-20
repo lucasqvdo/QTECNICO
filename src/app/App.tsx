@@ -1294,10 +1294,12 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
   const activeOrders = orders.filter(o => o.status !== "cancelled");
   const filtered = activeOrders.filter(o => new Date(o.date + "T12:00:00") >= cutoff);
 
-  const totalRecebido = filtered.filter(o => o.paymentStatus === "paid").reduce((s, o) => s + o.clientValue, 0);
-  const totalAReceber = filtered.filter(o => o.paymentStatus === "pending").reduce((s, o) => s + o.clientValue, 0);
+  const paidOrders    = filtered.filter(o => o.paymentStatus === "paid");
+  const pendingOrders2 = filtered.filter(o => o.paymentStatus === "pending");
+  const totalRecebido = paidOrders.reduce((s, o) => s + (o.paidAmount ?? o.clientValue), 0);
+  const totalAReceber = pendingOrders2.reduce((s, o) => s + o.clientValue, 0);
   const totalCustos   = filtered.reduce((s, o) => s + o.expenses.reduce((a, e) => a + e.amount, 0), 0);
-  const margemLiq     = totalRecebido - filtered.filter(o => o.paymentStatus === "paid").reduce((s, o) => s + o.expenses.reduce((a, e) => a + e.amount, 0), 0);
+  const margemLiq     = totalRecebido - paidOrders.reduce((s, o) => s + o.expenses.reduce((a, e) => a + e.amount, 0), 0);
 
   // Monthly bar chart data
   const monthsToShow = Math.min(periodMonths[period], 12);
@@ -1310,7 +1312,7 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
     });
     return {
       label,
-      recebido: monthOrders.filter(o => o.paymentStatus === "paid").reduce((s, o) => s + o.clientValue, 0),
+      recebido: monthOrders.filter(o => o.paymentStatus === "paid").reduce((s, o) => s + (o.paidAmount ?? o.clientValue), 0),
       aReceber: monthOrders.filter(o => o.paymentStatus === "pending").reduce((s, o) => s + o.clientValue, 0),
     };
   });
