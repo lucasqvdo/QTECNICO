@@ -1153,65 +1153,73 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
             </div>
           </div>
 
-          {/* Pagamento recebido */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Pagamento</p>
-            {order.paymentStatus === "paid" ? (
-              <div className="rounded-xl p-3 border border-green-200 bg-green-50 space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <BadgeCheck size={16} className="text-green-600 flex-shrink-0" />
-                    <span className="text-sm font-semibold text-green-700">Recebido</span>
-                  </div>
-                  <button onClick={() => onUpdate({ ...order, paymentStatus: "pending", paidDate: undefined, paidAmount: undefined })}
-                    className="text-xs text-red-500 font-semibold hover:text-red-700 transition-colors">
-                    Desfazer
-                  </button>
+        </div>
+
+        {/* ── Pagamento recebido ────────────────────────────────── */}
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pagamento recebido</h3>
+
+          {order.paymentStatus === "paid" ? (
+            <div className="rounded-xl p-4 border border-green-200 space-y-2" style={{ background: "#F0FDF4" }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BadgeCheck size={18} className="text-green-600 flex-shrink-0" />
+                  <span className="text-sm font-bold text-green-700">Recebido</span>
                 </div>
-                {order.paidAmount != null && (
-                  <p className="text-xs text-green-600 ml-6">Valor: <span className="font-semibold font-mono">{fmt(order.paidAmount)}</span></p>
-                )}
-                {order.paidDate && (
-                  <p className="text-xs text-green-600 ml-6">Data: {new Date(order.paidDate + "T12:00:00").toLocaleDateString("pt-BR")}</p>
-                )}
+                <button onClick={() => onUpdate({ ...order, paymentStatus: "pending", paidDate: undefined, paidAmount: undefined })}
+                  className="text-xs text-red-500 font-semibold hover:text-red-700 transition-colors">
+                  Desfazer
+                </button>
               </div>
-            ) : showPaymentForm ? (
-              <div className="border border-dashed border-border rounded-xl p-3 space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor recebido (R$)</label>
-                  <input type="number" value={payAmt} onChange={e => setPayAmt(e.target.value)}
-                    placeholder={String(order.clientValue || "0")}
-                    className="w-full px-3 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+              <div className="grid grid-cols-2 gap-3 mt-1">
+                <div className="bg-white rounded-xl p-3 border border-green-100">
+                  <p className="text-xs text-muted-foreground mb-0.5">Valor recebido</p>
+                  <p className="text-base font-bold font-mono text-green-700">{fmt(order.paidAmount ?? order.clientValue)}</p>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Data do recebimento</label>
-                  <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowPaymentForm(false)}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
-                    Cancelar
-                  </button>
-                  <button onClick={() => {
-                    const amount = parseFloat(payAmt.replace(",", "."));
-                    onUpdate({ ...order, paymentStatus: "paid", paidDate: payDate, paidAmount: isNaN(amount) ? order.clientValue : amount });
-                    setShowPaymentForm(false);
-                  }}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                    style={{ background: "#15803D" }}>
-                    Confirmar recebimento
-                  </button>
+                <div className="bg-white rounded-xl p-3 border border-green-100">
+                  <p className="text-xs text-muted-foreground mb-0.5">Data</p>
+                  <p className="text-sm font-bold text-green-700">
+                    {order.paidDate ? new Date(order.paidDate + "T12:00:00").toLocaleDateString("pt-BR") : "—"}
+                  </p>
                 </div>
               </div>
-            ) : (
-              <button onClick={() => { setPayAmt(String(order.clientValue || "")); setPayDate(new Date().toISOString().split("T")[0]); setShowPaymentForm(true); }}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
-                style={{ background: "#DCFCE7", color: "#15803D" }}>
-                <BadgeCheck size={15} /> Registrar recebimento
-              </button>
-            )}
-          </div>
+            </div>
+          ) : showPaymentForm ? (
+            <div className="border border-dashed border-border rounded-xl p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor recebido (R$)</label>
+                <input type="number" value={payAmt} onChange={e => setPayAmt(e.target.value)}
+                  placeholder={String(order.clientValue || "0")}
+                  className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Data do recebimento</label>
+                <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setShowPaymentForm(false)}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
+                  Cancelar
+                </button>
+                <button onClick={() => {
+                  const amount = parseFloat(payAmt.replace(",", "."));
+                  onUpdate({ ...order, paymentStatus: "paid", paidDate: payDate, paidAmount: isNaN(amount) ? order.clientValue : amount });
+                  setShowPaymentForm(false);
+                }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
+                  style={{ background: "#15803D" }}>
+                  Confirmar recebimento
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => { setPayAmt(String(order.clientValue || "")); setPayDate(new Date().toISOString().split("T")[0]); setShowPaymentForm(true); }}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all active:scale-95"
+              style={{ background: "#DCFCE7", color: "#15803D" }}>
+              <CircleDollarSign size={16} /> Registrar recebimento
+            </button>
+          )}
         </div>
 
         {order.status !== "completed" && order.status !== "cancelled" && (
