@@ -1,14 +1,19 @@
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { pool } from './db.js';
 import authRouter from './routes/auth.js';
 import ordersRouter from './routes/orders.js';
 import clientsRouter from './routes/clients.js';
 import usersRouter from './routes/users.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const isProd = process.env.NODE_ENV === 'production';
+
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -152,5 +157,14 @@ async function initDb() {
 }
 
 initDb().then(() => {
-  app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
+  // Serve frontend build in production
+  if (isProd) {
+    const distPath = path.join(__dirname, '..', 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
 });
