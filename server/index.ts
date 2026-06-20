@@ -154,6 +154,33 @@ async function initDb() {
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_signature TEXT`);
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2)`);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS order_payments (
+        id TEXT PRIMARY KEY,
+        order_id TEXT REFERENCES orders(id) ON DELETE CASCADE,
+        label TEXT DEFAULT 'Pagamento',
+        amount NUMERIC(14,2) NOT NULL,
+        date DATE NOT NULL,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // Migra pagamentos únicos antigos para a nova tabela
+    await pool.query(`
+      INSERT INTO order_payments (id, order_id, label, amount, date, status)
+      SELECT
+        'pay-mig-' || o.id,
+        o.id,
+        'Pagamento',
+        COALESCE(o.paid_amount, o.client_value),
+        COALESCE(o.paid_date, CURRENT_DATE),
+        'paid'
+      FROM orders o
+      WHERE o.payment_status = 'paid'
+        AND NOT EXISTS (SELECT 1 FROM order_payments op WHERE op.order_id = o.id)
+    `);
+
     console.log('✅ Banco de dados pronto');
   } catch (e) {
     console.error('❌ Erro ao inicializar banco:', e);

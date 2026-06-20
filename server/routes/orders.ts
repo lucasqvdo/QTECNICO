@@ -14,9 +14,10 @@ async function fetchOrders(userId: number) {
 
   const orderIds = orders.map((o: any) => o.id);
 
-  const [expRes, attRes] = await Promise.all([
+  const [expRes, attRes, payRes] = await Promise.all([
     pool.query('SELECT * FROM expenses WHERE order_id = ANY($1)', [orderIds]),
     pool.query('SELECT * FROM attendances WHERE order_id = ANY($1) ORDER BY start_time ASC', [orderIds]),
+    pool.query('SELECT * FROM order_payments WHERE order_id = ANY($1) ORDER BY date ASC', [orderIds]),
   ]);
 
   const attIds = attRes.rows.map((a: any) => a.id);
@@ -28,6 +29,19 @@ async function fetchOrders(userId: number) {
   for (const e of expRes.rows) {
     if (!expensesByOrder[e.order_id]) expensesByOrder[e.order_id] = [];
     expensesByOrder[e.order_id].push({ id: e.id, label: e.label, amount: parseFloat(e.amount) });
+  }
+
+  const paymentsByOrder: Record<string, any[]> = {};
+  for (const p of payRes.rows) {
+    if (!paymentsByOrder[p.order_id]) paymentsByOrder[p.order_id] = [];
+    paymentsByOrder[p.order_id].push({
+      id: p.id,
+      orderId: p.order_id,
+      label: p.label,
+      amount: parseFloat(p.amount),
+      date: p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0],
+      status: p.status,
+    });
   }
 
   const photosByAtt: Record<string, any[]> = {};
@@ -69,6 +83,7 @@ async function fetchOrders(userId: number) {
     clientSignature: o.client_signature ?? undefined,
     expenses: expensesByOrder[o.id] || [],
     attendances: attsByOrder[o.id] || [],
+    payments: paymentsByOrder[o.id] || [],
   }));
 }
 
@@ -136,6 +151,14 @@ router.put('/:id', requireAuth, async (req, res) => {
       await pool.query(
         'INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)',
         [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]
+      );
+    }
+
+    await pool.query('DELETE FROM order_payments WHERE order_id = $1', [id]);
+    for (const p of (o.payments || [])) {
+      await pool.query(
+        'INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)',
+        [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']
       );
     }
 

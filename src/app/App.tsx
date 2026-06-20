@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import logoImg from "@/imports/ChatGPT_Image_8_de_jun._de_2026__11_15_09.png";
-import { Screen, OrderStatus, ServiceOrder, Client, Attendance, AttendancePhoto, PaymentStatus } from "./types";
+import { Screen, OrderStatus, ServiceOrder, Client, Attendance, AttendancePhoto, PaymentStatus, Payment } from "./types";
 import { api } from "./api";
 
 /* ─── Configs ───────────────────────────────────────────────── */
@@ -31,6 +31,17 @@ const PRIORITY_CONFIG = {
 };
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+function orderPayInfo(order: ServiceOrder) {
+  if (order.payments && order.payments.length > 0) {
+    const paid = order.payments.filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
+    const pending = order.payments.filter(p => p.status === "pending").reduce((s, p) => s + p.amount, 0);
+    return { paid, pending, hasPayments: true };
+  }
+  // fallback para ordens antigas sem parcelas
+  const paid = order.paymentStatus === "paid" ? (order.paidAmount ?? order.clientValue) : 0;
+  return { paid, pending: order.paymentStatus === "pending" ? order.clientValue : 0, hasPayments: false };
+}
 
 const fmtDuration = (s: number) => {
   const h = Math.floor(s / 3600);
@@ -752,19 +763,203 @@ function OrderCard({ order, onSelect }: { order: ServiceOrder; onSelect: (o: Ser
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold" style={{ color: status.color, background: status.bg }}>
             {status.icon}{status.label}
           </span>
-          {order.status !== "cancelled" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
-              style={order.paymentStatus === "paid"
-                ? { color: "#15803D", background: "#DCFCE7" }
-                : { color: "#D97706", background: "#FEF3C7" }}>
-              {order.paymentStatus === "paid" ? <BadgeCheck size={11} /> : <Hourglass size={11} />}
-              {order.paymentStatus === "paid" ? "Recebido" : "A receber"}
-            </span>
-          )}
+          {order.status !== "cancelled" && (() => {
+            const { paid } = orderPayInfo(order);
+            const isFullyPaid = paid >= order.clientValue && order.clientValue > 0;
+            const isPartial = paid > 0 && !isFullyPaid;
+            return (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                style={isFullyPaid
+                  ? { color: "#15803D", background: "#DCFCE7" }
+                  : isPartial
+                  ? { color: "#1D4ED8", background: "#DBEAFE" }
+                  : { color: "#D97706", background: "#FEF3C7" }}>
+                {isFullyPaid ? <BadgeCheck size={11} /> : isPartial ? <CircleDollarSign size={11} /> : <Hourglass size={11} />}
+                {isFullyPaid ? "Recebido" : isPartial ? `${fmt(paid)} rec.` : "A receber"}
+              </span>
+            );
+          })()}
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground"><Calendar size={11} />{date}</div>
       </div>
     </button>
+  );
+}
+
+/* ─── Payments Card ──────────────────────────────────────────── */
+
+function PaymentsCard({ order, onUpdate }: { order: ServiceOrder; onUpdate: (o: ServiceOrder) => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newAmt, setNewAmt] = useState("");
+  const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0]);
+  const [newStatus, setNewStatus] = useState<"paid" | "pending">("pending");
+
+  const sorted = [...(order.payments || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const totalPaid    = sorted.filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
+  const totalPending = sorted.filter(p => p.status === "pending").reduce((s, p) => s + p.amount, 0);
+  const totalSched   = totalPaid + totalPending;
+  const balance      = order.clientValue - totalSched;
+
+  const openForm = () => {
+    setNewLabel(`Parcela ${sorted.length + 1}`);
+    setNewAmt(balance > 0 ? String(balance.toFixed(2)) : "");
+    setNewDate(new Date().toISOString().split("T")[0]);
+    setNewStatus("pending");
+    setShowForm(true);
+  };
+
+  const addPayment = () => {
+    const amount = parseFloat(newAmt.replace(",", "."));
+    if (isNaN(amount) || amount <= 0) return;
+    const p: Payment = {
+      id: `pay-${Date.now()}`,
+      orderId: order.id,
+      label: newLabel.trim() || "Pagamento",
+      amount,
+      date: newDate,
+      status: newStatus,
+    };
+    onUpdate({ ...order, payments: [...(order.payments || []), p] });
+    setShowForm(false);
+  };
+
+  const markPaid = (id: string) =>
+    onUpdate({ ...order, payments: order.payments.map(p => p.id === id ? { ...p, status: "paid" } : p) });
+
+  const removePay = (id: string) =>
+    onUpdate({ ...order, payments: order.payments.filter(p => p.id !== id) });
+
+  return (
+    <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pagamentos</h3>
+        {sorted.length > 0 && (
+          <div className="flex items-center gap-3 text-xs">
+            <span className="font-semibold text-green-700">{fmt(totalPaid)} rec.</span>
+            {totalPending > 0 && <span className="font-semibold text-amber-600">{fmt(totalPending)} pend.</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Resumo de saldo */}
+      {sorted.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-xl p-2.5 border border-green-100 bg-green-50 text-center">
+            <p className="text-xs text-muted-foreground mb-0.5">Recebido</p>
+            <p className="text-xs font-bold font-mono text-green-700">{fmt(totalPaid)}</p>
+          </div>
+          <div className="rounded-xl p-2.5 border border-amber-100 bg-amber-50 text-center">
+            <p className="text-xs text-muted-foreground mb-0.5">Pendente</p>
+            <p className="text-xs font-bold font-mono text-amber-700">{fmt(totalPending)}</p>
+          </div>
+          <div className={`rounded-xl p-2.5 border text-center ${balance > 0 ? "border-blue-100 bg-blue-50" : balance < 0 ? "border-orange-100 bg-orange-50" : "border-border bg-secondary"}`}>
+            <p className="text-xs text-muted-foreground mb-0.5">Saldo OS</p>
+            <p className={`text-xs font-bold font-mono ${balance > 0 ? "text-blue-700" : balance < 0 ? "text-orange-700" : "text-foreground"}`}>{fmt(Math.abs(balance))}{balance < 0 ? " +" : ""}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Lista de parcelas */}
+      {sorted.length > 0 && (
+        <div className="space-y-2">
+          {sorted.map(p => (
+            <div key={p.id} className="flex items-center gap-2 p-3 rounded-xl border border-border bg-secondary/30">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-semibold text-foreground">{p.label}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                    p.status === "paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                  }`}>
+                    {p.status === "paid" ? "Recebido" : "Pendente"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-sm font-mono font-bold">{fmt(p.amount)}</span>
+                  <span className="text-xs text-muted-foreground">· {new Date(p.date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {p.status === "pending" && (
+                  <button onClick={() => markPaid(p.id)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all active:scale-95"
+                    style={{ background: "#DCFCE7", color: "#15803D" }}>
+                    Receber
+                  </button>
+                )}
+                <button onClick={() => removePay(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 transition-colors">
+                  <Trash2 size={12} className="text-destructive" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Aviso de saldo */}
+      {order.clientValue > 0 && sorted.length > 0 && balance !== 0 && (
+        <p className={`text-xs px-3 py-1.5 rounded-lg font-medium ${balance > 0 ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}>
+          {balance > 0 ? `${fmt(balance)} ainda não agendado` : `${fmt(Math.abs(balance))} acima do valor da OS`}
+        </p>
+      )}
+
+      {/* Formulário de nova parcela */}
+      {showForm ? (
+        <div className="border border-dashed border-border rounded-xl p-4 space-y-3">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Descrição</label>
+              <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+                placeholder="Ex: Entrada, Parcela 1..."
+                className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+            </div>
+            <div className="w-28">
+              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Valor (R$)</label>
+              <input type="number" value={newAmt} onChange={e => setNewAmt(e.target.value)} placeholder="0,00"
+                className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Data</label>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Status</label>
+              <div className="flex gap-1.5 h-[38px]">
+                <button onClick={() => setNewStatus("pending")}
+                  className="flex-1 rounded-xl text-xs font-semibold transition-all"
+                  style={newStatus === "pending" ? { background: "#FEF3C7", color: "#D97706" } : { background: "var(--secondary)", color: "var(--muted-foreground)" }}>
+                  Pendente
+                </button>
+                <button onClick={() => setNewStatus("paid")}
+                  className="flex-1 rounded-xl text-xs font-semibold transition-all"
+                  style={newStatus === "paid" ? { background: "#DCFCE7", color: "#15803D" } : { background: "var(--secondary)", color: "var(--muted-foreground)" }}>
+                  Recebido
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowForm(false)}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
+              Cancelar
+            </button>
+            <button onClick={addPayment} disabled={!newAmt}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-40"
+              style={{ background: "var(--primary)" }}>
+              Adicionar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={openForm}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground">
+          <Plus size={14} /> Adicionar pagamento
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -867,9 +1062,6 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
   const [pendingPhotos, setPendingPhotos] = useState<AttendancePhoto[]>([]);
   const photoRef = useRef<HTMLInputElement>(null);
   const [showSigPad, setShowSigPad] = useState(false);
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [payAmt, setPayAmt] = useState("");
-  const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
 
   useEffect(() => {
     if (!timerActive || !timerStart) return;
@@ -1155,72 +1347,7 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
 
         </div>
 
-        {/* ── Pagamento recebido ────────────────────────────────── */}
-        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pagamento recebido</h3>
-
-          {order.paymentStatus === "paid" ? (
-            <div className="rounded-xl p-4 border border-green-200 space-y-2" style={{ background: "#F0FDF4" }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BadgeCheck size={18} className="text-green-600 flex-shrink-0" />
-                  <span className="text-sm font-bold text-green-700">Recebido</span>
-                </div>
-                <button onClick={() => onUpdate({ ...order, paymentStatus: "pending", paidDate: undefined, paidAmount: undefined })}
-                  className="text-xs text-red-500 font-semibold hover:text-red-700 transition-colors">
-                  Desfazer
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mt-1">
-                <div className="bg-white rounded-xl p-3 border border-green-100">
-                  <p className="text-xs text-muted-foreground mb-0.5">Valor recebido</p>
-                  <p className="text-base font-bold font-mono text-green-700">{fmt(order.paidAmount ?? order.clientValue)}</p>
-                </div>
-                <div className="bg-white rounded-xl p-3 border border-green-100">
-                  <p className="text-xs text-muted-foreground mb-0.5">Data</p>
-                  <p className="text-sm font-bold text-green-700">
-                    {order.paidDate ? new Date(order.paidDate + "T12:00:00").toLocaleDateString("pt-BR") : "—"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : showPaymentForm ? (
-            <div className="border border-dashed border-border rounded-xl p-4 space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor recebido (R$)</label>
-                <input type="number" value={payAmt} onChange={e => setPayAmt(e.target.value)}
-                  placeholder={String(order.clientValue || "0")}
-                  className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Data do recebimento</label>
-                <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setShowPaymentForm(false)}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
-                  Cancelar
-                </button>
-                <button onClick={() => {
-                  const amount = parseFloat(payAmt.replace(",", "."));
-                  onUpdate({ ...order, paymentStatus: "paid", paidDate: payDate, paidAmount: isNaN(amount) ? order.clientValue : amount });
-                  setShowPaymentForm(false);
-                }}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                  style={{ background: "#15803D" }}>
-                  Confirmar recebimento
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => { setPayAmt(String(order.clientValue || "")); setPayDate(new Date().toISOString().split("T")[0]); setShowPaymentForm(true); }}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all active:scale-95"
-              style={{ background: "#DCFCE7", color: "#15803D" }}>
-              <CircleDollarSign size={16} /> Registrar recebimento
-            </button>
-          )}
-        </div>
+        <PaymentsCard order={order} onUpdate={onUpdate} />
 
         {order.status !== "completed" && order.status !== "cancelled" && (
           <div className="bg-card border border-border rounded-2xl p-4">
@@ -1294,12 +1421,10 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
   const activeOrders = orders.filter(o => o.status !== "cancelled");
   const filtered = activeOrders.filter(o => new Date(o.date + "T12:00:00") >= cutoff);
 
-  const paidOrders    = filtered.filter(o => o.paymentStatus === "paid");
-  const pendingOrders2 = filtered.filter(o => o.paymentStatus === "pending");
-  const totalRecebido = paidOrders.reduce((s, o) => s + (o.paidAmount ?? o.clientValue), 0);
-  const totalAReceber = pendingOrders2.reduce((s, o) => s + o.clientValue, 0);
+  const totalRecebido = filtered.reduce((s, o) => s + orderPayInfo(o).paid, 0);
+  const totalAReceber = filtered.reduce((s, o) => s + Math.max(0, o.clientValue - orderPayInfo(o).paid), 0);
   const totalCustos   = filtered.reduce((s, o) => s + o.expenses.reduce((a, e) => a + e.amount, 0), 0);
-  const margemLiq     = totalRecebido - paidOrders.reduce((s, o) => s + o.expenses.reduce((a, e) => a + e.amount, 0), 0);
+  const margemLiq     = totalRecebido - totalCustos;
 
   // Monthly bar chart data
   const monthsToShow = Math.min(periodMonths[period], 12);
@@ -1312,8 +1437,8 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
     });
     return {
       label,
-      recebido: monthOrders.filter(o => o.paymentStatus === "paid").reduce((s, o) => s + (o.paidAmount ?? o.clientValue), 0),
-      aReceber: monthOrders.filter(o => o.paymentStatus === "pending").reduce((s, o) => s + o.clientValue, 0),
+      recebido: monthOrders.reduce((s, o) => s + orderPayInfo(o).paid, 0),
+      aReceber: monthOrders.reduce((s, o) => s + Math.max(0, o.clientValue - orderPayInfo(o).paid), 0),
     };
   });
 
@@ -1323,8 +1448,10 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
     { name: "A receber", value: totalAReceber, color: "#D97706" },
   ].filter(d => d.value > 0);
 
-  // Pending list
-  const pendingOrders = filtered.filter(o => o.paymentStatus === "pending").sort((a, b) => a.date.localeCompare(b.date));
+  // Pending list — ordens com saldo a receber
+  const pendingOrders = filtered
+    .filter(o => o.clientValue - orderPayInfo(o).paid > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   const periods: { key: FinPeriod; label: string }[] = [
     { key: "3m", label: "3 meses" },
@@ -1430,9 +1557,20 @@ function FinanceiroTab({ orders, onUpdate }: { orders: ServiceOrder[]; onUpdate:
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="font-bold text-sm text-amber-700">{fmt(o.clientValue)}</span>
+                    <span className="font-bold text-sm text-amber-700">{fmt(Math.max(0, o.clientValue - orderPayInfo(o).paid))}</span>
                     <button
-                      onClick={() => onUpdate({ ...o, paymentStatus: "paid", paidDate: new Date().toISOString().split("T")[0], paidAmount: o.clientValue })}
+                      onClick={() => {
+                        const remaining = Math.max(0, o.clientValue - orderPayInfo(o).paid);
+                        const newPay: Payment = {
+                          id: `pay-${Date.now()}`,
+                          orderId: o.id,
+                          label: "Pagamento",
+                          amount: remaining,
+                          date: new Date().toISOString().split("T")[0],
+                          status: "paid",
+                        };
+                        onUpdate({ ...o, payments: [...(o.payments || []), newPay] });
+                      }}
                       className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all active:scale-95"
                       style={{ background: "#DCFCE7", color: "#15803D" }}>
                       Receber

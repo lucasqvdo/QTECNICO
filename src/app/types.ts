@@ -32,6 +32,15 @@ export interface Attendance {
   photos: AttendancePhoto[];
 }
 
+export interface Payment {
+  id: string;
+  orderId: string;
+  label: string;
+  amount: number;
+  date: string;
+  status: "paid" | "pending";
+}
+
 export interface ServiceOrder {
   id: string;
   clientId: string;
@@ -46,6 +55,7 @@ export interface ServiceOrder {
   clientValue: number;
   expenses: Expense[];
   attendances: Attendance[];
+  payments: Payment[];
   paymentStatus: PaymentStatus;
   paidDate?: string;
   paidAmount?: number;
