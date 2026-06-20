@@ -9,11 +9,12 @@ import ordersRouter from './routes/orders.js';
 import clientsRouter from './routes/clients.js';
 import usersRouter from './routes/users.js';
 
+import { existsSync } from 'fs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isProd = process.env.NODE_ENV === 'production';
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '5000', 10);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -157,11 +158,11 @@ async function initDb() {
 }
 
 initDb().then(() => {
-  // Serve frontend build in production
-  if (isProd) {
-    const distPath = path.join(__dirname, '..', 'dist');
+  // Serve frontend build if dist/ exists (production)
+  const distPath = path.join(__dirname, '..', 'dist');
+  if (existsSync(path.join(distPath, 'index.html'))) {
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

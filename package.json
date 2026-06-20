@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "server": "tsx server/index.ts"
+    "server": "PORT=3000 tsx server/index.ts"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
