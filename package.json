@@ -7,6 +7,7 @@
     "build": "vite build",
     "dev": "vite",
     "server": "PORT=3000 tsx server/index.ts",
+    "start": "tsx server/index.ts",
     "migrate:photos": "tsx server/scripts/migrate-photos-to-storage.ts"
   },
   "dependencies": {
