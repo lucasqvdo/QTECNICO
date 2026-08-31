@@ -20,21 +20,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-app.use(cors());
-// Limite reduzido: fotos agora vão via upload multipart (/api/uploads) e só a URL
-// trafega no JSON. 2mb cobre folgadamente o resto do payload (assinatura em base64
-// pequena, textos, listas de despesas/pagamentos).
+// TEMPORÁRIO: remover CORS para debug
+// app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
-app.use('/api/auth', authRouter);
-app.use('/api/orders', ordersRouter);
-app.use('/api/clients', clientsRouter);
-app.use('/api/users', usersRouter);
-app.use('/api/uploads', uploadsRouter);
-app.use('/api/account', accountRouter);
+// Rota simples de teste
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// TEMPORÁRIO: comentar routers para debug
+// app.use('/api/auth', authRouter);
+// app.use('/api/orders', ordersRouter);
+// app.use('/api/clients', clientsRouter);
+// app.use('/api/users', usersRouter);
+// app.use('/api/uploads', uploadsRouter);
+// app.use('/api/account', accountRouter);
 
 async function initDb() {
   try {
+    console.log('📝 Iniciando conexão com o banco...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -98,6 +103,15 @@ async function initDb() {
         attendance_id TEXT REFERENCES attendances(id) ON DELETE CASCADE,
         data_url TEXT NOT NULL,
         name TEXT DEFAULT ''
+      );
+
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id SERIAL PRIMARY KEY,
+        email TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
 
@@ -236,14 +250,48 @@ async function initDb() {
 }
 
 initDb().then(() => {
+  console.log('✅ initDb().then() executado com sucesso');
   // Serve frontend build if dist/ exists (production)
   const distPath = path.join(__dirname, '..', 'dist');
   if (existsSync(path.join(distPath, 'index.html'))) {
+    console.log('📦 Servindo build frontend...');
     app.use(express.static(distPath));
     app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  });
+
+  // Tratamento de erros não capturados
+  process.on('uncaughtException', (err) => {
+    console.error('❌ Exceção não capturada:', err);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Promise rejeitada não tratada:', reason, promise);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('⏹️  SIGTERM recebido, encerrando gracefully...');
+    server.close(() => {
+      console.log('🛑 Servidor encerrado');
+      process.exit(0);
+    });
+  });
+
+  process.on('SIGINT', () => {
+    console.log('⏹️  SIGINT recebido, encerrando gracefully...');
+    server.close(() => {
+      console.log('🛑 Servidor encerrado');
+      process.exit(0);
+    });
+  });
+}).catch(err => {
+  console.error('❌ ERRO FATAL ao inicializar banco de dados:', err);
+  console.error('Stack:', err.stack);
+  process.exit(1);
 });

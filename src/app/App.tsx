@@ -248,6 +248,11 @@ export default function App() {
     await afterAuth(token, user);
   };
 
+  const handleForgotPassword = async (email: string) => {
+    const result = await api.forgotPassword(email);
+    return result;
+  };
+
   const handleUpdateOrder = async (updated: ServiceOrder) => {
     try {
       const saved = await api.updateOrder(updated);
@@ -326,7 +331,7 @@ export default function App() {
     return <LoginScreen email={loginEmail} password={loginPassword} error={loginError}
       onEmailChange={v => { setLoginEmail(v); setLoginError(false); }}
       onPasswordChange={v => { setLoginPassword(v); setLoginError(false); }}
-      onLogin={handleLogin} onRegister={handleRegister} />;
+      onLogin={handleLogin} onRegister={handleRegister} onForgotPassword={handleForgotPassword} />;
 
   const navItems: { key: typeof activeTab; label: string; icon: React.ReactNode }[] = [
     { key: "orders",     label: "Ordens de Serviço", icon: <ClipboardList size={20} /> },
@@ -472,12 +477,14 @@ export default function App() {
 
 /* ─── Login ─────────────────────────────────────────────────── */
 
-function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin, onRegister }: {
+function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin, onRegister, onForgotPassword }: {
   email: string; password: string; error: boolean;
   onEmailChange: (v: string) => void; onPasswordChange: (v: string) => void;
   onLogin: () => void; onRegister: (name: string, email: string, password: string) => Promise<void>;
+  onForgotPassword: (email: string) => Promise<{ ok: boolean; message: string; resetCode?: string; expiresAt?: string; emailInfo?: { simulated?: boolean; resetLink?: string; code?: string } }>;
 }) {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [resetMode, setResetMode] = useState<"request" | "code" | "new-password">("request");
   const [remember, setRemember] = useState(() => localStorage.getItem("qtecnico_remember") === "true");
   const [showPass, setShowPass] = useState(false);
   // Register fields
@@ -487,6 +494,14 @@ function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, 
   const [regConfirm, setRegConfirm] = useState("");
   const [regError, setRegError] = useState("");
   const [regLoading, setRegLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState("");
+  const [forgotError, setForgotError] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState("");
 
   useEffect(() => {
     if (localStorage.getItem("qtecnico_remember") === "true") {
@@ -537,6 +552,96 @@ function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, 
     }
   };
 
+  const handleForgotPassword = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setForgotError("Informe seu e-mail para recuperar a senha.");
+      setForgotMessage("");
+      return;
+    }
+
+    setForgotLoading(true);
+    setForgotError("");
+    setForgotMessage("");
+    setResetSuccess("");
+
+    try {
+      const response = await onForgotPassword(trimmedEmail);
+      setResetCode(response.resetCode || "");
+
+      setForgotMessage(
+        response.message || "Um código foi enviado para o seu e-mail. Verifique sua caixa de entrada e continue."
+      );
+      setResetMode("code");
+    } catch (e: any) {
+      setForgotError(e.message || "Não foi possível recuperar a senha.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleVerifyResetCode = () => {
+    if (!resetCode.trim()) {
+      setForgotError("Informe o código de 6 dígitos recebido por e-mail.");
+      return;
+    }
+    if (!/^\d{6}$/.test(resetCode.trim())) {
+      setForgotError("O código deve conter exatamente 6 dígitos numéricos.");
+      return;
+    }
+    setForgotError("");
+    setResetMode("new-password");
+  };
+
+  const handleResetPassword = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setForgotError("Informe seu e-mail antes de redefinir a senha.");
+      return;
+    }
+    if (!resetCode.trim()) {
+      setForgotError("Informe o código de 6 dígitos recebido por e-mail.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setForgotError("A nova senha deve ter no mínimo 6 caracteres.");
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      setForgotError("As senhas não coincidem.");
+      return;
+    }
+
+    setResetLoading(true);
+    setForgotError("");
+    setResetSuccess("");
+
+    try {
+      await fetch('/api/auth/password-reset/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmedEmail, code: resetCode.trim(), password: newPassword }),
+      }).then(async (res) => {
+        const data = await res.json().catch(() => ({ message: 'Erro ao redefinir a senha.' }));
+        if (!res.ok) {
+          throw new Error(data.error || data.message || 'Erro ao redefinir a senha.');
+        }
+        return data;
+      });
+
+      setResetSuccess("Senha redefinida com sucesso. Você pode voltar e entrar com a nova senha.");
+      setForgotMessage("");
+      setResetMode("request");
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      setResetCode("");
+    } catch (e: any) {
+      setForgotError(e.message || "Não foi possível redefinir a senha.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const inputCls = "w-full px-4 py-3 rounded-xl bg-secondary text-foreground placeholder-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all";
 
   return (
@@ -563,57 +668,187 @@ function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, 
 
         {mode === "login" ? (
           <>
-            <p className="text-base font-semibold text-foreground mb-4">Entrar na sua conta</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
-                <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
-                  placeholder="seu@email.com" className={inputCls}
-                  onKeyDown={e => e.key === "Enter" && handleLogin()} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
-                <div className="relative">
-                  <input type={showPass ? "text" : "password"} value={password} onChange={e => onPasswordChange(e.target.value)}
-                    placeholder="••••••••" className={`${inputCls} pr-12`}
-                    onKeyDown={e => e.key === "Enter" && handleLogin()} />
-                  <button type="button" onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
-                    {showPass ? "Ocultar" : "Ver"}
+            {resetMode === "request" && (
+              <>
+                <p className="text-base font-semibold text-foreground mb-4">Entrar na sua conta</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
+                    <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
+                      placeholder="seu@email.com" className={inputCls}
+                      onKeyDown={e => e.key === "Enter" && handleLogin()} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
+                    <div className="relative">
+                      <input type={showPass ? "text" : "password"} value={password} onChange={e => onPasswordChange(e.target.value)}
+                        placeholder="••••••••" className={`${inputCls} pr-12`}
+                        onKeyDown={e => e.key === "Enter" && handleLogin()} />
+                      <button type="button" onClick={() => setShowPass(!showPass)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
+                        {showPass ? "Ocultar" : "Ver"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
+                      <AlertCircle size={14} /><span>E-mail ou senha incorretos.</span>
+                    </div>
+                  )}
+
+                  <button type="button" onClick={toggleRemember} className="flex items-center gap-3 w-full group">
+                    <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all"
+                      style={{ borderColor: remember ? "var(--primary)" : "var(--border)", background: remember ? "var(--primary)" : "transparent" }}>
+                      {remember && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                    </div>
+                    <span className="text-sm text-foreground group-hover:text-primary transition-colors">Lembrar meus dados</span>
+                  </button>
+
+                  <button onClick={handleLogin}
+                    className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                    style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
+                    Entrar
+                  </button>
+
+                  <button onClick={handleForgotPassword} disabled={forgotLoading}
+                    className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-60"
+                    style={{ background: "transparent", color: "var(--primary)" }}>
+                    {forgotLoading ? "Verificando..." : "Esqueci minha senha"}
+                  </button>
+
+                  {forgotError && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
+                      <AlertCircle size={14} /><span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  {forgotMessage && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 text-green-700 text-sm">
+                      <AlertCircle size={14} /><span>{forgotMessage}</span>
+                    </div>
+                  )}
+
+                  <button onClick={() => setMode("register")}
+                    className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
+                    style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
+                    Criar conta
+                  </button>
+
+                  <p className="text-xs text-muted-foreground text-center">
+                    Demo: <span className="font-mono">lucas.qtech@gmail.com</span> / <span className="font-mono">123456</span>
+                  </p>
+                </div>
+              </>
+            )}
+
+            {resetMode === "code" && (
+              <>
+                <p className="text-base font-semibold text-foreground mb-4">Confirmar código</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
+                    <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
+                      placeholder="seu@email.com" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Código de 6 dígitos</label>
+                    <input type="text" inputMode="numeric" maxLength={6} value={resetCode} onChange={e => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="123456" className={inputCls} />
+                  </div>
+
+                  {forgotMessage && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 text-green-700 text-sm whitespace-pre-line">
+                      <AlertCircle size={14} /><span>{forgotMessage}</span>
+                    </div>
+                  )}
+
+                  {forgotError && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
+                      <AlertCircle size={14} /><span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  <button onClick={handleVerifyResetCode}
+                    className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                    style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
+                    Verificar código
+                  </button>
+
+                  <button onClick={() => {
+                    setResetMode("request");
+                    setResetCode("");
+                    setForgotError("");
+                    setForgotMessage("");
+                    setResetSuccess("");
+                  }}
+                    className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                    style={{ background: "transparent", color: "var(--primary)" }}>
+                    Voltar
                   </button>
                 </div>
-              </div>
+              </>
+            )}
 
-              {error && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
-                  <AlertCircle size={14} /><span>E-mail ou senha incorretos.</span>
+            {resetMode === "new-password" && (
+              <>
+                <p className="text-base font-semibold text-foreground mb-4">Definir nova senha</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
+                    <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
+                      placeholder="seu@email.com" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Código recebido</label>
+                    <input type="text" inputMode="numeric" maxLength={6} value={resetCode} onChange={e => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="123456" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Nova senha</label>
+                    <input type={showPass ? "text" : "password"} value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                      placeholder="Mínimo 6 caracteres" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Confirmar nova senha</label>
+                    <input type={showPass ? "text" : "password"} value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)}
+                      placeholder="Repita a nova senha" className={inputCls} />
+                  </div>
+
+                  {forgotError && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
+                      <AlertCircle size={14} /><span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  {resetSuccess && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 text-green-700 text-sm">
+                      <AlertCircle size={14} /><span>{resetSuccess}</span>
+                    </div>
+                  )}
+
+                  <button onClick={handleResetPassword} disabled={resetLoading}
+                    className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-60"
+                    style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
+                    {resetLoading ? "Salvando..." : "Salvar nova senha"}
+                  </button>
+
+                  <button onClick={() => {
+                    setResetMode("request");
+                    setResetCode("");
+                    setNewPassword("");
+                    setNewPasswordConfirm("");
+                    setForgotError("");
+                    setForgotMessage("");
+                    setResetSuccess("");
+                  }}
+                    className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                    style={{ background: "transparent", color: "var(--primary)" }}>
+                    Voltar
+                  </button>
                 </div>
-              )}
-
-              <button type="button" onClick={toggleRemember} className="flex items-center gap-3 w-full group">
-                <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all"
-                  style={{ borderColor: remember ? "var(--primary)" : "var(--border)", background: remember ? "var(--primary)" : "transparent" }}>
-                  {remember && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                </div>
-                <span className="text-sm text-foreground group-hover:text-primary transition-colors">Lembrar meus dados</span>
-              </button>
-
-              <button onClick={handleLogin}
-                className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
-                style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
-                Entrar
-              </button>
-
-              <button onClick={() => setMode("register")}
-                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
-                style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
-                Criar conta
-              </button>
-
-              <p className="text-xs text-muted-foreground text-center">
-                Demo: <span className="font-mono">lucas.qtech@gmail.com</span> / <span className="font-mono">123456</span>
-              </p>
-            </div>
+              </>
+            )}
           </>
         ) : (
           <>
