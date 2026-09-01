@@ -1,12 +1,17 @@
-import { Camera, User, Wrench, Phone, Mail, DollarSign, Receipt, TrendingUp, TrendingDown, Edit2, Save } from "lucide-react";
+import { Camera, User, Wrench, Phone, Mail, DollarSign, Receipt, TrendingUp, TrendingDown, Edit2, Save, Fingerprint, ShieldCheck, ShieldOff, Loader2 } from "lucide-react";
 import { fmt } from "../config";
 import { ProfileField, Stat } from "./ui/SharedComponents";
 import type { ServiceOrder } from "../types";
 
-export function ProfileTab({ name, role, phone, email, photo, editing, orders, onEditToggle, onNameChange, onRoleChange, onPhoneChange, onEmailChange, onPhotoClick, onSave }: {
+export function ProfileTab({ name, role, phone, email, photo, editing, orders, onEditToggle, onNameChange, onRoleChange, onPhoneChange, onEmailChange, onPhotoClick, onSave, biometricEnrolled, biometricLoading, onEnableBiometric, onDisableBiometric }: {
   name: string; role: string; phone: string; email: string; photo: string | null; editing: boolean; orders: ServiceOrder[];
   onEditToggle: () => void; onNameChange: (v: string) => void; onRoleChange: (v: string) => void;
   onPhoneChange: (v: string) => void; onEmailChange: (v: string) => void; onPhotoClick: () => void; onSave: () => void;
+  /** Se há credencial biométrica cadastrada neste dispositivo */
+  biometricEnrolled?: boolean;
+  biometricLoading?: boolean;
+  onEnableBiometric?: () => void;
+  onDisableBiometric?: () => void;
 }) {
   const done = orders.filter(o => o.status === "completed");
   const totalReceita = done.reduce((s, o) => s + o.clientValue, 0);
@@ -79,6 +84,44 @@ export function ProfileTab({ name, role, phone, email, photo, editing, orders, o
             </div>
           </div>
         </div>
+
+        {/* Card de segurança — biometria */}
+        {(onEnableBiometric || onDisableBiometric) && (
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">Segurança</h3>
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: biometricEnrolled ? "#DCFCE7" : "var(--secondary)" }}>
+                {biometricEnrolled
+                  ? <ShieldCheck size={22} className="text-green-700" />
+                  : <Fingerprint size={22} className="text-muted-foreground" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-foreground">Login biométrico</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {biometricEnrolled
+                    ? "Ativo neste dispositivo"
+                    : "Digital ou reconhecimento facial"}
+                </p>
+              </div>
+              {biometricLoading ? (
+                <Loader2 size={18} className="animate-spin text-muted-foreground flex-shrink-0" />
+              ) : biometricEnrolled ? (
+                <button onClick={onDisableBiometric}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 flex-shrink-0"
+                  style={{ background: "#FEE2E2", color: "#B91C1C" }}>
+                  <ShieldOff size={13} /> Desativar
+                </button>
+              ) : (
+                <button onClick={onEnableBiometric}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 flex-shrink-0"
+                  style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
+                  <Fingerprint size={13} /> Ativar
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

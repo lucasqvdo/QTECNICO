@@ -345,7 +345,12 @@ export default function App() {
             onNameChange={setTechName} onRoleChange={setTechRole}
             onPhoneChange={setTechPhone} onEmailChange={setTechEmail}
             onPhotoClick={() => fileInputRef.current?.click()}
-            onSave={handleSaveProfile} />
+            onSave={handleSaveProfile}
+            biometricEnrolled={!!webauthn.enrolledEmail}
+            biometricLoading={webauthn.loading}
+            onEnableBiometric={webauthn.supported ? handleEnrollBiometric : undefined}
+            onDisableBiometric={webauthn.supported ? async () => { await webauthn.removeEnrollment(); } : undefined}
+          />
         )}
 
         {activeTab === "orders" && (
