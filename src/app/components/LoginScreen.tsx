@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Fingerprint } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import logoImg from "@/imports/ChatGPT_Image_8_de_jun._de_2026__11_15_09.png";
 
@@ -12,9 +12,12 @@ interface LoginScreenProps {
   onLogin: () => void;
   onRegister: (name: string, email: string, password: string) => Promise<void>;
   onForgotPassword: (email: string) => Promise<{ ok: boolean; message: string }>;
+  /** Exibe botão "voltar para biometria" quando o usuário veio do modo biométrico */
+  showBiometricBack?: boolean;
+  onBiometricBack?: () => void;
 }
 
-export function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin, onRegister, onForgotPassword }: LoginScreenProps) {
+export function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin, onRegister, onForgotPassword, showBiometricBack, onBiometricBack }: LoginScreenProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [resetMode, setResetMode] = useState<"request" | "code" | "new-password">("request");
   const [remember, setRemember] = useState(() => localStorage.getItem("qtecnico_remember") === "true");
@@ -229,6 +232,17 @@ export function LoginScreen({ email, password, error, onEmailChange, onPasswordC
                     style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
                     Criar conta
                   </button>
+
+                  {/* Botão para voltar ao login biométrico — só aparece quando o
+                      usuário escolheu "entrar com senha" a partir da tela biométrica */}
+                  {showBiometricBack && onBiometricBack && (
+                    <button onClick={onBiometricBack}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
+                      style={{ color: "var(--primary)", background: "transparent" }}>
+                      <Fingerprint size={16} />
+                      Usar biometria
+                    </button>
+                  )}
                 </div>
               </>
             )}

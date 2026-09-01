@@ -12,6 +12,8 @@ import { ClientsTab } from "./components/ClientsTab";
 import { AddOrderModal } from "./components/AddOrderModal";
 import { ProfileTab } from "./components/ProfileTab";
 import { InstallPrompt } from "./components/InstallPrompt";
+import { BiometricLoginButton, BiometricEnrollPrompt } from "./components/BiometricLogin";
+import { useWebAuthn } from "./hooks/useWebAuthn";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("login");
@@ -34,6 +36,15 @@ export default function App() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Biometria ──────────────────────────────────────────────────────────────
+  const webauthn = useWebAuthn();
+  // Mostra o prompt de ativação somente uma vez por sessão após login com senha
+  const [showEnrollPrompt, setShowEnrollPrompt] = useState(false);
+  // Quando true, exibe o botão biométrico em vez do formulário de login
+  const showBiometricLogin = webauthn.supported && !!webauthn.enrolledEmail;
+  // Permite voltar ao formulário de senha a partir da tela biométrica
+  const [forcePasswordMode, setForcePasswordMode] = useState(false);
 
   const applyUser = (user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null; photoKey?: string | null }) => {
     setTechName(user.name);
@@ -76,9 +87,31 @@ export default function App() {
     try {
       const { token, user } = await api.login(loginEmail, loginPassword);
       await afterAuth(token, user);
+      // Após login com senha: se biometria suportada e não cadastrada ainda,
+      // oferece ativação (só mostra uma vez por sessão)
+      if (webauthn.supported && !webauthn.enrolledEmail) {
+        setShowEnrollPrompt(true);
+      }
     } catch {
       setLoginError(true);
     }
+  };
+
+  // Login via biometria — chama o authenticator nativo do dispositivo
+  const handleBiometricLogin = async () => {
+    if (!webauthn.enrolledEmail) return;
+    try {
+      const { token, user } = await webauthn.authenticate(webauthn.enrolledEmail);
+      await afterAuth(token, user);
+    } catch {
+      // erro já está em webauthn.error — exibido no BiometricLoginButton
+    }
+  };
+
+  // Ativar biometria após login com senha bem-sucedido
+  const handleEnrollBiometric = async () => {
+    const ok = await webauthn.register();
+    if (ok) setShowEnrollPrompt(false);
   };
 
   const handleRegister = async (name: string, email: string, password: string) => {
@@ -136,6 +169,8 @@ export default function App() {
     localStorage.removeItem("qtecnico_token");
     setOrders([]); setClients([]);
     setScreen("login");
+    setForcePasswordMode(false);
+    setShowEnrollPrompt(false);
   };
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,11 +199,49 @@ export default function App() {
     completed: orders.filter(o => o.status === "completed").length,
   };
 
-  if (screen === "login")
-    return <LoginScreen email={loginEmail} password={loginPassword} error={loginError}
+  if (screen === "login") {
+    // Modo biométrico: dispositivo tem credencial cadastrada e o usuário
+    // não pediu explicitamente para usar senha
+    if (showBiometricLogin && !forcePasswordMode) {
+      return (
+        <div className="min-h-screen bg-primary flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
+          <div className="flex-1 flex flex-col justify-end px-6 pb-0">
+            <div className="mb-10">
+              <h1 className="text-3xl font-bold text-white mb-1">Bem-vindo!</h1>
+              <p className="text-white/50 text-sm">Use sua biometria para entrar.</p>
+            </div>
+          </div>
+          <div className="bg-background rounded-t-3xl px-6 pt-8 pb-12">
+            <div className="flex flex-col items-center mb-8">
+              <ImageWithFallback src={logoImg} alt="QTecnico logo" className="w-20 h-20 object-contain" />
+              <h2 className="text-2xl font-bold tracking-tight mt-2" style={{ color: "var(--primary)" }}>
+                Q<span style={{ color: "var(--accent)" }}>Tecnico</span>
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Gestão de Ordens de Serviço</p>
+            </div>
+            <BiometricLoginButton
+              enrolledEmail={webauthn.enrolledEmail!}
+              loading={webauthn.loading}
+              error={webauthn.error}
+              onAuthenticate={handleBiometricLogin}
+              onUsePassword={() => { webauthn.clearError(); setForcePasswordMode(true); }}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Modo senha: formulário padrão (com botão "usar biometria" se disponível)
+    return <LoginScreen
+      email={loginEmail} password={loginPassword} error={loginError}
       onEmailChange={v => { setLoginEmail(v); setLoginError(false); }}
       onPasswordChange={v => { setLoginPassword(v); setLoginError(false); }}
-      onLogin={handleLogin} onRegister={handleRegister} onForgotPassword={handleForgotPassword} />;
+      onLogin={handleLogin} onRegister={handleRegister} onForgotPassword={handleForgotPassword}
+      // Se tem biometria cadastrada e veio do modo forçado, permite voltar
+      showBiometricBack={showBiometricLogin && forcePasswordMode}
+      onBiometricBack={() => setForcePasswordMode(false)}
+    />;
+  }
 
   const navItems: { key: typeof activeTab; label: string; icon: React.ReactNode }[] = [
     { key: "orders",     label: "Ordens de Serviço", icon: <ClipboardList size={20} /> },
@@ -303,6 +376,16 @@ export default function App() {
 
       {/* Banner de instalação da PWA — aparece automaticamente quando elegível */}
       <InstallPrompt />
+
+      {/* Prompt de ativação biométrica — aparece uma vez após o primeiro login com senha */}
+      {showEnrollPrompt && (
+        <BiometricEnrollPrompt
+          loading={webauthn.loading}
+          error={webauthn.error}
+          onEnable={handleEnrollBiometric}
+          onDismiss={() => setShowEnrollPrompt(false)}
+        />
+      )}
     </div>
   );
 }
