@@ -82,7 +82,7 @@ export const api = {
     }),
 
   forgotPassword: (email: string) =>
-    request<{ ok: boolean; message: string; resetCode?: string; expiresAt?: string; emailInfo?: { simulated?: boolean; resetLink?: string; code?: string } }>('/auth/forgot-password', {
+    request<{ ok: boolean; message: string }>('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),
@@ -119,4 +119,43 @@ export const api = {
 
   deleteClient: (id: string) =>
     request<{ success: boolean }>(`/clients/${id}`, { method: 'DELETE' }),
+
+  // ── WebAuthn / Biometria ────────────────────────────────────────────────
+
+  webauthn: {
+    /** Opções para registrar uma nova credencial biométrica (requer JWT). */
+    registerOptions: () =>
+      request<Record<string, unknown>>('/auth/webauthn/register/options', { method: 'POST' }),
+
+    /** Envia a resposta do authenticator para verificação (requer JWT). */
+    registerVerify: (response: unknown) =>
+      request<{ verified: boolean }>('/auth/webauthn/register/verify', {
+        method: 'POST',
+        body: JSON.stringify(response),
+      }),
+
+    /** Opções para autenticar via biometria (não requer JWT). */
+    authenticateOptions: (email: string) =>
+      request<Record<string, unknown> & { userId: number }>('/auth/webauthn/authenticate/options', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
+
+    /** Envia a resposta do authenticator → devolve token JWT. */
+    authenticateVerify: (userId: number, response: unknown) =>
+      request<{ token: string; user: UserProfile }>('/auth/webauthn/authenticate/verify', {
+        method: 'POST',
+        body: JSON.stringify({ userId, response }),
+      }),
+
+    /** Lista credenciais cadastradas no dispositivo (requer JWT). */
+    listCredentials: () =>
+      request<{ id: string; device_type: string; created_at: string; last_used_at: string | null }[]>(
+        '/auth/webauthn/credentials',
+      ),
+
+    /** Remove uma credencial pelo id (requer JWT). */
+    deleteCredential: (id: string) =>
+      request<{ success: boolean }>(`/auth/webauthn/credentials/${id}`, { method: 'DELETE' }),
+  },
 };

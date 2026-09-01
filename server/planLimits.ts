@@ -31,7 +31,7 @@ export async function getAccountContext(userId: number): Promise<AccountContext 
  */
 export function enforceOrderLimit() {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const userId = (req as any).userId as number;
+    const userId = req.userId as number;
     const ctx = await getAccountContext(userId);
     if (!ctx) {
       return res.status(403).json({ error: 'Conta sem plano associado. Contate o suporte.' });
@@ -66,7 +66,7 @@ export function enforceOrderLimit() {
  */
 export function requireFeature(feature: keyof PlanFeatures) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const userId = (req as any).userId as number;
+    const userId = req.userId as number;
     const ctx = await getAccountContext(userId);
     if (!ctx) {
       return res.status(403).json({ error: 'Conta sem plano associado. Contate o suporte.' });

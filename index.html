@@ -1,14 +1,43 @@
 
   <!DOCTYPE html>
-  <html lang="en">
+  <html lang="pt-BR">
     <head>
       
       <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>QTECNICO</title>
-      <meta name="description" content="QTECNICO — Gestão de Ordens de Serviço para técnicos." />
+
+      <!-- Viewport otimizado para mobile: evita zoom indesejado em inputs -->
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+      <title>QTecnico — Gestão de OS</title>
+      <meta name="description" content="QTecnico — Gestão de Ordens de Serviço para técnicos." />
       <meta name="robots" content="noindex, nofollow" />
-      <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
+
+      <!-- ── PWA / instalação ─────────────────────────────────── -->
+
+      <!-- Cor da barra de status do Android e Chrome para Desktop -->
+      <meta name="theme-color" content="#1A2B4E" />
+
+      <!-- iOS: permite adicionar à tela inicial como app standalone -->
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+      <meta name="apple-mobile-web-app-title" content="QTecnico" />
+
+      <!-- Ícone para iOS (Safari não lê o manifest.json para isso) -->
+      <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+      <!-- Favicons -->
+      <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+      <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+
+      <!-- O manifest.json e o service worker são injetados automaticamente
+           pelo vite-plugin-pwa no build. Em dev o plugin os serve via virtual. -->
+
+      <style>
+        html, body { height: 100%; margin: 0; }
+        #root { height: 100%; }
+        /* Evita flash branco durante carregamento do app */
+        body { background-color: #1A2B4E; }
+      </style>
       
     </head>
 

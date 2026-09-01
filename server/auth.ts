@@ -20,7 +20,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   try {
     const payload = jwt.verify(auth.slice(7), SECRET) as Record<string, unknown>;
-    (req as any).userId = payload.id;
+    req.userId = payload.id as number;
     next();
   } catch {
     res.status(401).json({ error: 'Token inválido' });

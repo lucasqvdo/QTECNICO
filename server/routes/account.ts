@@ -6,7 +6,7 @@ import { getAccountContext } from '../planLimits.js';
 const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const ctx = await getAccountContext(userId);
   if (!ctx) return res.status(404).json({ error: 'Conta não encontrada' });
 

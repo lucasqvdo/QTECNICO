@@ -12,6 +12,7 @@ import clientsRouter from './routes/clients.js';
 import usersRouter from './routes/users.js';
 import uploadsRouter from './routes/uploads.js';
 import accountRouter from './routes/account.js';
+import webauthnRouter from './routes/webauthn.js';
 
 import { existsSync } from 'fs';
 
@@ -20,22 +21,40 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-// TEMPORÁRIO: remover CORS para debug
-// app.use(cors());
+// Em produção com proxy reverso (Nginx, Render, Railway, etc.) o IP real do
+// cliente chega no header X-Forwarded-For. Sem isso o rate limiter veria sempre
+// o IP do proxy e bloquearia todos os usuários juntos.
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
+// Origens permitidas: lê do env em produção, fallback para localhost em dev.
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permite requisições sem origin (ex: curl, Postman, mobile apps)
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '2mb' }));
 
-// Rota simples de teste
+// Rota de health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// TEMPORÁRIO: comentar routers para debug
-// app.use('/api/auth', authRouter);
-// app.use('/api/orders', ordersRouter);
-// app.use('/api/clients', clientsRouter);
-// app.use('/api/users', usersRouter);
-// app.use('/api/uploads', uploadsRouter);
-// app.use('/api/account', accountRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/clients', clientsRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/uploads', uploadsRouter);
+app.use('/api/account', accountRouter);
+app.use('/api/auth/webauthn', webauthnRouter);
 
 async function initDb() {
   try {
@@ -241,6 +260,32 @@ async function initDb() {
       );
       await pool.query(`UPDATE users SET account_id = $1, is_account_admin = true WHERE id = $2`, [accRes.rows[0].id, u.id]);
     }
+
+    // --- WebAuthn / Biometria ---
+    // Cada linha representa uma credencial registrada num dispositivo.
+    // Um usuário pode ter várias (ex: celular pessoal + celular do trabalho).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        id            TEXT PRIMARY KEY,
+        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        public_key    BYTEA NOT NULL,
+        counter       BIGINT NOT NULL DEFAULT 0,
+        device_type   TEXT,
+        backed_up     BOOLEAN NOT NULL DEFAULT false,
+        transports    TEXT[],
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_used_at  TIMESTAMPTZ
+      )
+    `);
+
+    // Challenge temporário por usuário (expira em 5 min).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        challenge   TEXT NOT NULL,
+        expires_at  TIMESTAMPTZ NOT NULL
+      )
+    `);
 
     console.log('✅ Banco de dados pronto');
   } catch (e) {

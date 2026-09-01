@@ -98,7 +98,7 @@ async function fetchOrders(userId: number) {
 
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const orders = await fetchOrders((req as any).userId);
+    const orders = await fetchOrders(req.userId);
     res.json(orders);
   } catch (e) {
     console.error(e);
@@ -107,7 +107,7 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const o = req.body;
   const now = new Date();
   const ym = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -139,7 +139,7 @@ router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const { id } = req.params;
   const o = req.body;
 
@@ -211,7 +211,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const { id } = req.params;
   try {
     await pool.query('DELETE FROM orders WHERE id = $1 AND user_id = $2', [id, userId]);

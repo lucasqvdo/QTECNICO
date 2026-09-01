@@ -5,7 +5,7 @@ import { requireAuth } from '../auth.js';
 const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   try {
     const result = await pool.query(
       'SELECT * FROM clients WHERE user_id = $1 ORDER BY name',
@@ -22,7 +22,7 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 router.post('/', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const c = req.body;
   const id = c.id || Date.now().toString();
   try {
@@ -38,7 +38,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const { id } = req.params;
   const c = req.body;
   try {
@@ -54,7 +54,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   const { id } = req.params;
   try {
     await pool.query('DELETE FROM clients WHERE id = $1 AND user_id = $2', [id, userId]);

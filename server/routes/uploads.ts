@@ -1,12 +1,19 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { requireAuth } from '../auth.js';
 import { uploadImage, isAllowedImage, isStorageConfigured, getDownloadUrl } from '../storage.js';
 
 const router = Router();
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB — deve ser igual ao MAX_BYTES em storage.ts
+
 // Guarda o arquivo em memória (buffer) — não escreve em disco, só repassa pro storage.
-const upload = multer({ storage: multer.memoryStorage() });
+// O limite de fileSize rejeita o upload ANTES de carregar o arquivo inteiro na memória,
+// evitando que arquivos gigantes esgotem a RAM do servidor (DoS).
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+});
 
 // folder é restrito a um conjunto conhecido para não deixar o cliente escrever
 // em qualquer "pasta" arbitrária do bucket.
@@ -42,6 +49,16 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     console.error('Erro no upload de imagem:', e);
     res.status(500).json({ error: 'Erro ao enviar imagem' });
   }
+});
+
+// Handler de erros do multer — converte LIMIT_FILE_SIZE numa resposta 400 legível,
+// em vez de deixar o Express retornar um 500 genérico.
+router.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'Arquivo muito grande: o limite é 10MB.' });
+  }
+  console.error('Erro no upload:', err);
+  res.status(500).json({ error: 'Erro ao processar upload.' });
 });
 
 export default router;

@@ -6,7 +6,7 @@ import { getDownloadUrl } from '../storage.js';
 const router = Router();
 
 router.get('/me', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   try {
     const result = await pool.query(
       'SELECT id, name, role, phone, email, photo_url FROM users WHERE id = $1',
@@ -29,7 +29,7 @@ router.get('/me', requireAuth, async (req, res) => {
 });
 
 router.put('/me', requireAuth, async (req, res) => {
-  const userId = (req as any).userId;
+  const userId = req.userId;
   // photoKey é o que deve ser persistido (chave do bucket privado). Mantemos
   // aceitar photoUrl por retrocompatibilidade, mas ele nunca deve ser salvo
   // como está — só photoKey (ou, em dados legados, um valor que já não seja

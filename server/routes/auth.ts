@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db.js';
 import { signToken } from '../auth.js';
 
@@ -28,19 +28,6 @@ class RegisterEmailChecker extends EmailValidator {
     }
     if (await this.userExists(normalized)) {
       throw new Error('E-mail já cadastrado');
-    }
-    return normalized;
-  }
-}
-
-class ForgotPasswordEmailChecker extends EmailValidator {
-  async ensureRegistered(email: string): Promise<string> {
-    const normalized = this.normalize(email);
-    if (!this.isValidEmail(normalized)) {
-      throw new Error('E-mail inválido');
-    }
-    if (!(await this.userExists(normalized))) {
-      throw new Error('E-mail não cadastrado');
     }
     return normalized;
   }
@@ -117,12 +104,42 @@ async function createPasswordResetToken(email: string) {
 
 const router = Router();
 
-router.post('/login', async (req, res) => {
+// Rate limiters para rotas sensíveis — previnem força bruta e enumeração.
+// Os limites são por IP. Em produção com proxy reverso (Nginx, Render, etc.)
+// defina 'app.set("trust proxy", 1)' no server/index.ts para usar o IP real.
+
+/** Login: 10 tentativas por 15 minutos por IP */
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de login. Aguarde 15 minutos e tente novamente.' },
+});
+
+/** Registro: 5 contas por hora por IP */
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de cadastro. Aguarde e tente novamente.' },
+});
+
+/** Reset de senha: 5 solicitações por hora por IP */
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas solicitações de recuperação de senha. Aguarde e tente novamente.' },
+});
+
+router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Credenciais inválidas' });
 
   try {
-    const normalizedEmail = new RegisterEmailChecker().ensureAvailable ? undefined : undefined;
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [String(email).trim().toLowerCase()]);
     const user = result.rows[0];
     if (!user) return res.status(401).json({ error: 'E-mail ou senha incorretos' });
@@ -148,7 +165,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'Preencha todos os campos' });
   if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres' });
@@ -180,29 +197,36 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Informe o e-mail para recuperar a senha.' });
 
+  // Resposta genérica usada em todos os casos para evitar user enumeration:
+  // não revelamos se o e-mail está ou não cadastrado.
+  const genericResponse = {
+    ok: true,
+    message: 'Se o e-mail informado estiver cadastrado, enviaremos um código de 6 dígitos para redefinir a senha.',
+  };
+
   try {
-    const emailChecker = new ForgotPasswordEmailChecker();
-    const normalizedEmail = await emailChecker.ensureRegistered(email);
-    const { code, expiresAt, mailInfo } = await createPasswordResetToken(normalizedEmail);
-
-    console.log(`🔐 Reset solicitado para ${normalizedEmail}. Código: ${code}`);
-
-    return res.json({
-      ok: true,
-      message: `Se o e-mail ${normalizedEmail} estiver cadastrado, enviaremos um código de 6 dígitos para redefinir a senha.`,
-      resetCode: code,
-      expiresAt,
-      emailInfo: mailInfo,
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : 'Erro ao recuperar senha';
-    if (message === 'E-mail inválido' || message === 'E-mail não cadastrado') {
-      return res.status(404).json({ error: message });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      // E-mail inválido: retorna a mesma resposta genérica para não revelar nada
+      return res.json(genericResponse);
     }
+
+    const exists = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (exists.rows.length === 0) {
+      // E-mail não cadastrado: retorna genérico para não enumerar usuários
+      return res.json(genericResponse);
+    }
+
+    const { code } = await createPasswordResetToken(normalizedEmail);
+    // Loga apenas no servidor (nunca no cliente)
+    console.log(`🔐 Reset solicitado para ${normalizedEmail}. Código enviado por e-mail.`);
+
+    return res.json(genericResponse);
+  } catch (e) {
     console.error(e);
     return res.status(500).json({ error: 'Erro ao recuperar senha' });
   }
