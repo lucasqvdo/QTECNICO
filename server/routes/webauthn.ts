@@ -11,7 +11,6 @@ import { requireAuth, signToken } from '../auth.js';
 import { assertWebAuthnTransport, getWebAuthnConfig } from '../webauthn.js';
 
 const router = Router();
-const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 function getUserId(req: any) {
   const userId = Number(req.userId);
@@ -34,11 +33,10 @@ async function saveChallenge(userId: number, type: 'registration' | 'authenticat
 async function consumeChallenge(userId: number, type: 'registration' | 'authentication', challenge: string) {
   const result = await pool.query(
     `DELETE FROM webauthn_challenges
-     WHERE user_id = $1 AND type = $2 AND challenge = $3 AND expires_at > NOW()
-     RETURNING id`,
+     WHERE user_id = $1 AND type = $2 AND challenge = $3 AND expires_at > NOW()`,
     [userId, type, challenge],
   );
-  return result.rows.length > 0;
+  return result.rowCount > 0;
 }
 
 function sendWebAuthnError(res: any, error: unknown) {
@@ -96,7 +94,7 @@ router.post('/register/verify', requireAuth, async (req, res) => {
     const challengeResult = await pool.query(
       `SELECT challenge FROM webauthn_challenges
        WHERE user_id = $1 AND type = 'registration' AND expires_at > NOW()
-       ORDER BY id DESC LIMIT 1`,
+       ORDER BY expires_at DESC LIMIT 1`,
       [userId],
     );
     const challenge = challengeResult.rows[0]?.challenge;
@@ -119,11 +117,11 @@ router.post('/register/verify', requireAuth, async (req, res) => {
       `INSERT INTO webauthn_credentials
          (id, user_id, public_key, counter, transports, device_type, backed_up)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (id) DO UPDATE SET 
+        ON CONFLICT (id) DO UPDATE SET
           public_key = EXCLUDED.public_key,
-          counter = EXCLUDED.counter, 
-          transports = EXCLUDED.transports, 
-          device_type = EXCLUDED.device_type, 
+          counter = EXCLUDED.counter,
+          transports = EXCLUDED.transports,
+          device_type = EXCLUDED.device_type,
           backed_up = EXCLUDED.backed_up`,
       [
         credential.id,
@@ -207,7 +205,7 @@ router.post('/authenticate/verify', async (req, res) => {
     const challengeResult = await pool.query(
       `SELECT challenge FROM webauthn_challenges
        WHERE user_id = $1 AND type = 'authentication' AND expires_at > NOW()
-       ORDER BY id DESC LIMIT 1`,
+       ORDER BY expires_at DESC LIMIT 1`,
       [credentialRow.user_id],
     );
     const challenge = challengeResult.rows[0]?.challenge;
