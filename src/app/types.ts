@@ -19,9 +19,7 @@ export interface Expense {
 
 export interface AttendancePhoto {
   id: string;
-  /** Chave do objeto no bucket privado — é o que deve ser persistido no banco. */
   key: string;
-  /** URL assinada e temporária, só para exibição — nunca persistir isolada. */
   dataUrl: string;
   name: string;
 }
@@ -62,8 +60,8 @@ export interface ServiceOrder {
   paymentStatus: PaymentStatus;
   paidDate?: string;
   paidAmount?: number;
-  /** URL assinada e temporária, só para exibição — nunca persistir isolada. */
   clientSignature?: string;
-  /** Chave do objeto no bucket privado — é o que deve ser enviado ao salvar. */
   clientSignatureKey?: string;
+  assignedTechnicianId?: number | null;
+  assignedTechnicianName?: string | null;
 }
