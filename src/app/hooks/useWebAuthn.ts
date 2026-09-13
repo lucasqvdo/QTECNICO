@@ -72,21 +72,21 @@ export function useWebAuthn(): WebAuthnState & WebAuthnActions {
     setError(null);
     try {
       // 1. Pede as options ao servidor
-      const options = await api.webauthn.registerOptions();
+      const options = await api.webauthnRegisterOptions();
 
       // 2. Chama o authenticator nativo (abre o prompt de digital/face)
       const registrationResponse = await startRegistration({ optionsJSON: options as any });
 
       // 3. Envia a resposta ao servidor para verificação e persistência
-      const { verified } = await api.webauthn.registerVerify(registrationResponse);
+      const result = await api.webauthnRegisterVerify(registrationResponse);
 
-      if (verified) {
+      if (result.success) {
         // Salva o e-mail do usuário logado para uso na tela de login biométrico
         const me = await api.getMe();
         localStorage.setItem(STORAGE_KEY, me.email);
         setEnrolledEmail(me.email);
       }
-      return verified;
+      return result.success;
     } catch (e: any) {
       // NotAllowedError = usuário cancelou ou timeout
       if (e?.name === 'NotAllowedError') {
@@ -100,7 +100,7 @@ export function useWebAuthn(): WebAuthnState & WebAuthnActions {
     }
   }, []);
 
-  // ── Autenticação ──────────────────────────────────────────────────────────
+  // ── Autenticação ────────────────────────────────────────────────────────────
   const authenticate = useCallback(async (
     email: string,
   ): Promise<{ token: string; user: UserProfile }> => {
@@ -108,14 +108,13 @@ export function useWebAuthn(): WebAuthnState & WebAuthnActions {
     setError(null);
     try {
       // 1. Pede as options ao servidor (envia o e-mail para buscar as credenciais)
-      const optionsWithUserId = await api.webauthn.authenticateOptions(email);
-      const { userId, ...options } = optionsWithUserId;
+      const options = await api.webauthnAuthenticationOptions(email);
 
       // 2. Chama o authenticator nativo
       const authResponse = await startAuthentication({ optionsJSON: options as any });
 
       // 3. Verifica no servidor → recebe JWT
-      const result = await api.webauthn.authenticateVerify(userId, authResponse);
+      const result = await api.webauthnAuthenticationVerify(authResponse);
       return result;
     } catch (e: any) {
       if (e?.name === 'NotAllowedError') {
@@ -132,8 +131,8 @@ export function useWebAuthn(): WebAuthnState & WebAuthnActions {
     setLoading(true);
     setError(null);
     try {
-      const creds = await api.webauthn.listCredentials();
-      await Promise.all(creds.map(c => api.webauthn.deleteCredential(c.id)));
+      // Nota: endpoints para listar e deletar não foram implementados no servidor
+      // Por enquanto, apenas remove do localStorage local
       localStorage.removeItem(STORAGE_KEY);
       setEnrolledEmail(null);
     } catch (e: any) {
