@@ -43,6 +43,7 @@ export interface UserProfile {
   role: string;
   phone: string;
   email: string;
+  isAdmin?: boolean;
   photoUrl?: string | null;
 }
 
@@ -93,6 +94,7 @@ export const api = {
     }),
 
   getMe: () => request<UserProfile>('/users/me'),
+  getAdminAccess: () => request<{ allowed: boolean }>('/users/admin/access'),
 
   updateProfile: (data: Omit<UserProfile, 'id'>) =>
     request<UserProfile>('/users/me', { method: 'PUT', body: JSON.stringify(data) }),
