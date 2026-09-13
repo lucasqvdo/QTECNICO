@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { BarChart3, CalendarDays, CheckCircle2, ClipboardList, DollarSign, LogOut, Menu, Users, Wrench, X } from 'lucide-react';
+import { BarChart3, CalendarDays, CheckCircle2, ClipboardList, Clock3, DollarSign, LogOut, Menu, Users, Wrench, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from './api';
 import TeamManagement from './TeamManagement';
 import ClientsManagement from './ClientsManagement';
 import OrdersManagement from './OrdersManagement';
+import AttendanceManagement from './AttendanceManagement';
 import type { Client, OrderStatus, ServiceOrder } from './types';
 
 const STATUS: Record<OrderStatus, { label: string; className: string }> = {
@@ -15,11 +16,12 @@ const STATUS: Record<OrderStatus, { label: string; className: string }> = {
   cancelled: { label: 'Cancelada', className: 'bg-red-100 text-red-700' },
 };
 const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-type Section = 'dashboard' | 'clients' | 'team' | 'orders';
+type Section = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances';
 type NavItem = { key: Section | 'agenda' | 'finance'; icon: typeof BarChart3; label: string };
 const NAV: NavItem[] = [
   { key: 'dashboard', icon: BarChart3, label: 'Dashboard' },
   { key: 'orders', icon: ClipboardList, label: 'Ordens de Serviço' },
+  { key: 'attendances', icon: Clock3, label: 'Atendimentos' },
   { key: 'clients', icon: Users, label: 'Clientes' },
   { key: 'team', icon: Wrench, label: 'Técnicos / Equipe' },
   { key: 'agenda', icon: CalendarDays, label: 'Agenda' },
@@ -77,7 +79,7 @@ export default function AdminDashboard() {
       <div className="flex items-center justify-between border-b border-slate-100 p-4 lg:hidden"><b>Menu</b><button onClick={() => setMenuOpen(false)} aria-label="Fechar menu"><X /></button></div>
       <nav className="space-y-1 p-4">
         {NAV.map(({ key, icon: Icon, label }) => {
-          const available = key === 'dashboard' || key === 'clients' || key === 'team' || key === 'orders';
+          const available = key === 'dashboard' || key === 'clients' || key === 'team' || key === 'orders' || key === 'attendances';
           return <button key={key} onClick={() => available ? select(key as Section) : setMenuOpen(false)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${section === key ? 'bg-cyan-50 text-cyan-700' : 'text-slate-600 hover:bg-slate-50'}`}><Icon size={18} /><span>{label}</span>{!available && <span className="ml-auto text-[10px] text-slate-400">Em breve</span>}</button>;
         })}
       </nav>
@@ -95,6 +97,7 @@ export default function AdminDashboard() {
   if (section === 'team') return <Layout><TeamManagement onBack={() => select('dashboard')} /></Layout>;
   if (section === 'clients') return <Layout><ClientsManagement clients={clients} orders={orders} onClientsChange={setClients} onBack={() => select('dashboard')} /></Layout>;
   if (section === 'orders') return <Layout><OrdersManagement orders={orders} clients={clients} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
+  if (section === 'attendances') return <Layout><AttendanceManagement orders={orders} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
 
   return <Layout><div className="p-4 sm:p-6 lg:p-8">
     <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-sm font-medium text-cyan-600">Visão geral</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Dashboard</h1><p className="mt-1 text-sm text-slate-500">Acompanhe a operação, serviços e resultados da QTECH.</p></div><div className="flex flex-wrap gap-2"><select value={period} onChange={(e) => setPeriod(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">Todo o período</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option></select><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as OrderStatus | 'all')} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">Todos os status</option><option value="pending">Pendentes</option><option value="in_progress">Em andamento</option><option value="completed">Concluídas</option><option value="cancelled">Canceladas</option></select></div></div>
