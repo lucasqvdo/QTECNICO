@@ -117,10 +117,10 @@ router.post('/register/verify', requireAuth, async (req, res) => {
     const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
     await pool.query(
       `INSERT INTO webauthn_credentials
-        (id, user_id, public_key, counter, transports, device_type, backed_up)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (id) DO UPDATE SET public_key = EXCLUDED.public_key,
-         counter = EXCLUDED.counter, transports = EXCLUDED.transports`,
+         (id, user_id, public_key, counter, transports, device_type, backed_up)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (id) DO UPDATE SET public_key = EXCLUDED.public_key,
+          counter = EXCLUDED.counter, transports = EXCLUDED.transports, device_type = EXCLUDED.device_type, backed_up = EXCLUDED.backed_up`,
       [
         credential.id,
         userId,
