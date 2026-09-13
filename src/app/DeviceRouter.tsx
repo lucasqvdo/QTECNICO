@@ -3,10 +3,6 @@ import App from "./App";
 import AdminDashboard from "./AdminDashboard";
 import { api } from "./api";
 
-function isAdminFromStoredSession() {
-  return false;
-}
-
 export default function DeviceRouter() {
   const [authenticated, setAuthenticated] = useState(() => Boolean(localStorage.getItem("qtecnico_token")));
   const [adminAllowed, setAdminAllowed] = useState(false);
