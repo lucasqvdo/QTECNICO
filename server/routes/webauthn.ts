@@ -119,8 +119,12 @@ router.post('/register/verify', requireAuth, async (req, res) => {
       `INSERT INTO webauthn_credentials
          (id, user_id, public_key, counter, transports, device_type, backed_up)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (id) DO UPDATE SET public_key = EXCLUDED.public_key,
-          counter = EXCLUDED.counter, transports = EXCLUDED.transports, device_type = EXCLUDED.device_type, backed_up = EXCLUDED.backed_up`,
+        ON CONFLICT (id) DO UPDATE SET 
+          public_key = EXCLUDED.public_key,
+          counter = EXCLUDED.counter, 
+          transports = EXCLUDED.transports, 
+          device_type = EXCLUDED.device_type, 
+          backed_up = EXCLUDED.backed_up`,
       [
         credential.id,
         userId,
@@ -185,14 +189,20 @@ router.post('/authenticate/verify', async (req, res) => {
     }
 
     const credentialResult = await pool.query(
-      `SELECT c.*, u.id AS user_id, u.email, u.name, u.role, u.phone, u.photo_url
-       FROM webauthn_credentials c
-       JOIN users u ON u.id = c.user_id
-       WHERE c.id = $1`,
+      `SELECT id, user_id, public_key, counter, transports
+       FROM webauthn_credentials
+       WHERE id = $1`,
       [response.id],
     );
     const credentialRow = credentialResult.rows[0];
     if (!credentialRow) return res.status(401).json({ error: 'Biometria não cadastrada' });
+
+    const userResult = await pool.query(
+      'SELECT id, email, name, role, phone, photo_url FROM users WHERE id = $1',
+      [credentialRow.user_id],
+    );
+    const user = userResult.rows[0];
+    if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
 
     const challengeResult = await pool.query(
       `SELECT challenge FROM webauthn_challenges
@@ -225,16 +235,16 @@ router.post('/authenticate/verify', async (req, res) => {
     ]);
     await consumeChallenge(credentialRow.user_id, 'authentication', challenge);
 
-    const token = signToken({ id: credentialRow.user_id, email: credentialRow.email });
+    const token = signToken({ id: user.id, email: user.email });
     res.json({
       token,
       user: {
-        id: credentialRow.user_id,
-        name: credentialRow.name,
-        role: credentialRow.role || '',
-        phone: credentialRow.phone || '',
-        email: credentialRow.email,
-        photoUrl: credentialRow.photo_url || null,
+        id: user.id,
+        name: user.name,
+        role: user.role || '',
+        phone: user.phone || '',
+        email: user.email,
+        photoUrl: user.photo_url || null,
       },
     });
   } catch (error) {
