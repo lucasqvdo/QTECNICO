@@ -47,6 +47,16 @@ export interface UserProfile {
   photoUrl?: string | null;
 }
 
+export interface TeamMember {
+  id: number;
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  isAdmin: boolean;
+  createdAt?: string;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<{ token: string; user: UserProfile }>('/auth/login', {
@@ -95,29 +105,28 @@ export const api = {
 
   getMe: () => request<UserProfile>('/users/me'),
   getAdminAccess: () => request<{ allowed: boolean }>('/users/admin/access'),
+  getTeam: () => request<TeamMember[]>('/users/admin/team'),
+  createTeamMember: (data: { name: string; email: string; password: string; phone: string; role: string }) =>
+    request<TeamMember>('/users/admin/team', { method: 'POST', body: JSON.stringify(data) }),
+  deleteTeamMember: (id: number) =>
+    request<{ success: boolean }>(`/users/admin/team/${id}`, { method: 'DELETE' }),
 
   updateProfile: (data: Omit<UserProfile, 'id'>) =>
     request<UserProfile>('/users/me', { method: 'PUT', body: JSON.stringify(data) }),
 
   getOrders: () => request<ServiceOrder[]>('/orders'),
-
-  createOrder: (o: ServiceOrder) =>
-    request<ServiceOrder>('/orders', { method: 'POST', body: JSON.stringify(o) }),
-
-  updateOrder: (o: ServiceOrder) =>
-    request<ServiceOrder>(`/orders/${o.id}`, { method: 'PUT', body: JSON.stringify(o) }),
-
+  createOrder: (order: ServiceOrder) =>
+    request<ServiceOrder>('/orders', { method: 'POST', body: JSON.stringify(order) }),
+  updateOrder: (id: string, order: Partial<ServiceOrder>) =>
+    request<ServiceOrder>(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(order) }),
   deleteOrder: (id: string) =>
     request<{ success: boolean }>(`/orders/${id}`, { method: 'DELETE' }),
 
   getClients: () => request<Client[]>('/clients'),
-
-  createClient: (c: Client) =>
-    request<Client>('/clients', { method: 'POST', body: JSON.stringify(c) }),
-
-  updateClient: (c: Client) =>
-    request<Client>(`/clients/${c.id}`, { method: 'PUT', body: JSON.stringify(c) }),
-
+  createClient: (client: Client) =>
+    request<Client>('/clients', { method: 'POST', body: JSON.stringify(client) }),
+  updateClient: (id: string, client: Partial<Client>) =>
+    request<Client>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(client) }),
   deleteClient: (id: string) =>
     request<{ success: boolean }>(`/clients/${id}`, { method: 'DELETE' }),
 };
