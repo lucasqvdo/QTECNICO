@@ -1,8 +1,6 @@
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from './db.js';
@@ -10,8 +8,6 @@ import authRouter from './routes/auth.js';
 import ordersRouter from './routes/orders.js';
 import clientsRouter from './routes/clients.js';
 import usersRouter from './routes/users.js';
-import uploadsRouter from './routes/uploads.js';
-import accountRouter from './routes/account.js';
 import webauthnRouter from './routes/webauthn.js';
 
 import { existsSync } from 'fs';
@@ -21,44 +17,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-// Em produção com proxy reverso (Nginx, Render, Railway, etc.) o IP real do
-// cliente chega no header X-Forwarded-For. Sem isso o rate limiter veria sempre
-// o IP do proxy e bloquearia todos os usuários juntos.
-if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
-}
-
-// Origens permitidas: lê do env em produção, fallback para localhost em dev.
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Permite requisições sem origin (ex: curl, Postman, mobile apps)
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
-  },
-  credentials: true,
-}));
-app.use(express.json({ limit: '2mb' }));
-
-// Rota de health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
 
 app.use('/api/auth', authRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/users', usersRouter);
-app.use('/api/uploads', uploadsRouter);
-app.use('/api/account', accountRouter);
 app.use('/api/auth/webauthn', webauthnRouter);
+app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path.startsWith('/api')) {
+    if (error?.type === 'entity.parse.failed') {
+      return res.status(400).json({ error: 'JSON inválido' });
+    }
+    return res.status(500).json({ error: 'Erro interno da API' });
+  }
+  next(error);
+});
 
 async function initDb() {
   try {
-    console.log('📝 Iniciando conexão com o banco...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -68,6 +46,26 @@ async function initDb() {
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         photo_url TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        public_key BYTEA NOT NULL,
+        counter BIGINT NOT NULL DEFAULT 0,
+        transports TEXT[] NOT NULL DEFAULT '{}',
+        device_type TEXT,
+        backed_up BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('registration', 'authentication')),
+        challenge TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
@@ -123,28 +121,12 @@ async function initDb() {
         data_url TEXT NOT NULL,
         name TEXT DEFAULT ''
       );
-
-      CREATE TABLE IF NOT EXISTS password_reset_tokens (
-        id SERIAL PRIMARY KEY,
-        email TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        expires_at TIMESTAMPTZ NOT NULL,
-        used_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
     `);
 
     const userCheck = await pool.query("SELECT id FROM users WHERE email = 'lucas.qtech@gmail.com'");
 
     if (userCheck.rows.length === 0) {
-      // Nunca hardcode a senha do usuário de seed no código-fonte (fica exposta no
-      // repositório). Usa SEED_USER_PASSWORD se definida; caso contrário, gera uma
-      // senha aleatória e a imprime uma única vez no log do servidor.
-      const seedPassword = process.env.SEED_USER_PASSWORD || crypto.randomBytes(9).toString('base64url');
-      if (!process.env.SEED_USER_PASSWORD) {
-        console.log(`🔑 Senha gerada para lucas.qtech@gmail.com: ${seedPassword} (defina SEED_USER_PASSWORD para fixar uma senha própria)`);
-      }
-      const hash = await bcrypt.hash(seedPassword, 10);
+      const hash = await bcrypt.hash('123456', 10);
       const userRes = await pool.query(
         `INSERT INTO users (name, role, phone, email, password_hash)
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -230,63 +212,6 @@ async function initDb() {
         AND NOT EXISTS (SELECT 1 FROM order_payments op WHERE op.order_id = o.id)
     `);
 
-    // --- Planos / contas ---
-    // Uma "account" é a unidade que assina um plano. Hoje cada usuário é dono da
-    // própria account (1:1); o campo existe separado de users pra permitir, no
-    // futuro, vários técnicos (users) compartilhando a mesma account/plano
-    // (planos Médio/Power), sem precisar de outra migração de schema.
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS accounts (
-        id SERIAL PRIMARY KEY,
-        owner_user_id INTEGER REFERENCES users(id),
-        plan_key TEXT NOT NULL DEFAULT 'free',
-        subscription_status TEXT NOT NULL DEFAULT 'active',
-        current_period_end TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES accounts(id)`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_account_admin BOOLEAN NOT NULL DEFAULT true`);
-
-    // Backfill: todo usuário existente que ainda não tem account ganha uma própria.
-    // Fica no plano 'power' por padrão (sem limites) para não travar quem já estava
-    // usando o app antes dos planos existirem — ajuste manualmente no banco se quiser
-    // testar os limites de um plano menor.
-    const orphanUsers = await pool.query(`SELECT id FROM users WHERE account_id IS NULL`);
-    for (const u of orphanUsers.rows) {
-      const accRes = await pool.query(
-        `INSERT INTO accounts (owner_user_id, plan_key) VALUES ($1, 'power') RETURNING id`,
-        [u.id]
-      );
-      await pool.query(`UPDATE users SET account_id = $1, is_account_admin = true WHERE id = $2`, [accRes.rows[0].id, u.id]);
-    }
-
-    // --- WebAuthn / Biometria ---
-    // Cada linha representa uma credencial registrada num dispositivo.
-    // Um usuário pode ter várias (ex: celular pessoal + celular do trabalho).
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS webauthn_credentials (
-        id            TEXT PRIMARY KEY,
-        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        public_key    BYTEA NOT NULL,
-        counter       BIGINT NOT NULL DEFAULT 0,
-        device_type   TEXT,
-        backed_up     BOOLEAN NOT NULL DEFAULT false,
-        transports    TEXT[],
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        last_used_at  TIMESTAMPTZ
-      )
-    `);
-
-    // Challenge temporário por usuário (expira em 5 min).
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS webauthn_challenges (
-        user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-        challenge   TEXT NOT NULL,
-        expires_at  TIMESTAMPTZ NOT NULL
-      )
-    `);
-
     console.log('✅ Banco de dados pronto');
   } catch (e) {
     console.error('❌ Erro ao inicializar banco:', e);
@@ -295,48 +220,18 @@ async function initDb() {
 }
 
 initDb().then(() => {
-  console.log('✅ initDb().then() executado com sucesso');
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'Rota da API não encontrada' });
+  });
+
   // Serve frontend build if dist/ exists (production)
   const distPath = path.join(__dirname, '..', 'dist');
   if (existsSync(path.join(distPath, 'index.html'))) {
-    console.log('📦 Servindo build frontend...');
     app.use(express.static(distPath));
     app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  });
-
-  // Tratamento de erros não capturados
-  process.on('uncaughtException', (err) => {
-    console.error('❌ Exceção não capturada:', err);
-  });
-
-  process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Promise rejeitada não tratada:', reason, promise);
-  });
-
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('⏹️  SIGTERM recebido, encerrando gracefully...');
-    server.close(() => {
-      console.log('🛑 Servidor encerrado');
-      process.exit(0);
-    });
-  });
-
-  process.on('SIGINT', () => {
-    console.log('⏹️  SIGINT recebido, encerrando gracefully...');
-    server.close(() => {
-      console.log('🛑 Servidor encerrado');
-      process.exit(0);
-    });
-  });
-}).catch(err => {
-  console.error('❌ ERRO FATAL ao inicializar banco de dados:', err);
-  console.error('Stack:', err.stack);
-  process.exit(1);
+  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
 });

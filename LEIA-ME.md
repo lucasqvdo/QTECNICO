@@ -90,6 +90,5 @@ git push
   é uma mudança maior, melhor fazer como próxima etapa isolada.
 - Gateway de pagamento (Mercado Pago) para upgrade/downgrade de plano de
   verdade, hoje o `plan_key` só muda manualmente no banco.
-- UI no frontend mostrando plano atual, uso e um botão de upgrade quando a
-  API retornar erro `PLAN_LIMIT_ORDERS`/`PLAN_LIMIT_PHOTOS`/`PLAN_LIMIT_FEATURE`.
-
+ - UI no frontend mostrando plano atual, uso e um botão de upgrade quando a
+   API retornar erro `PLAN_LIMIT_ORDERS`/`PLAN_LIMIT_PHOTOS`/`PLAN_LIMIT_FEATURE`.
