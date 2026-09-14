@@ -44,6 +44,11 @@ export interface UserProfile {
 export interface TeamMember {
   id: number; name: string; role: string; phone: string; email: string; isAdmin: boolean; createdAt?: string;
 }
+export interface CompanyProfileData {
+  id: number; legalName: string; tradeName: string; document: string; phone: string; whatsapp: string;
+  email: string; website: string; postalCode: string; address: string; number: string; complement: string;
+  neighborhood: string; city: string; state: string; logoKey: string; description: string; updatedAt?: string;
+}
 
 type AuthResponse = { user: UserProfile; token?: never };
 
@@ -75,6 +80,8 @@ export const api = {
   createTeamMember: (data: { name: string; email: string; password: string; phone: string; role: string }) => request<TeamMember>('/users/admin/team', { method: 'POST', body: JSON.stringify(data) }),
   deleteTeamMember: (id: number) => request<{ success: boolean }>(`/users/admin/team/${id}`, { method: 'DELETE' }),
   updateProfile: (data: Omit<UserProfile, 'id'>) => request<UserProfile>('/users/me', { method: 'PUT', body: JSON.stringify(data) }),
+  getCompanyProfile: () => request<CompanyProfileData | null>('/company/profile'),
+  updateCompanyProfile: (data: CompanyProfileData) => request<CompanyProfileData>('/company/profile', { method: 'PUT', body: JSON.stringify(data) }),
   getOrders: () => request<ServiceOrder[]>('/orders'),
   createOrder: (order: ServiceOrder) => request<ServiceOrder>('/orders', { method: 'POST', body: JSON.stringify(order) }),
   updateOrder: (id: string, order: Partial<ServiceOrder>) => request<ServiceOrder>(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(order) }),
