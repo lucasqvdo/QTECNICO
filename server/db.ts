@@ -41,6 +41,27 @@ async function reconcileWebAuthnSchema() {
     `);
   }
 
+  // Discoverable passkeys (usernameless authentication) do not know the user
+  // before the authenticator returns a credential. Keep those short-lived
+  // challenges separate from the legacy user-keyed challenge table.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS webauthn_auth_challenges (
+      challenge TEXT PRIMARY KEY,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS webauthn_auth_challenges_expires_at_idx
+      ON webauthn_auth_challenges (expires_at)
+  `);
+
+  await pool.query(`
+    DELETE FROM webauthn_auth_challenges
+    WHERE expires_at <= NOW()
+  `);
+
   // The rate limiter is persisted in Postgres so limits survive restarts and
   // are shared across multiple application instances.
   await pool.query(`
