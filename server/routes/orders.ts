@@ -6,16 +6,27 @@ import { getDownloadUrl } from '../storage.js';
 
 const router = Router();
 
-async function fetchOrders(userId: number) {
-  const ordersRes = await pool.query(
-    'SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC',
+async function getAccessContext(userId: number) {
+  const { rows } = await pool.query(
+    `SELECT u.is_admin, u.account_id FROM users u WHERE u.id = $1`,
     [userId]
+  );
+  if (!rows[0]?.account_id) throw new Error('Conta não encontrada');
+  return { accountId: rows[0].account_id as number, isAdmin: Boolean(rows[0].is_admin) };
+}
+
+async function fetchOrders(userId: number) {
+  const { accountId, isAdmin } = await getAccessContext(userId);
+  const ordersRes = await pool.query(
+    isAdmin
+      ? `SELECT o.* FROM orders o JOIN users owner ON owner.id = o.user_id WHERE owner.account_id = $1 ORDER BY o.created_at DESC`
+      : `SELECT o.* FROM orders o WHERE o.user_id = $1 OR o.assigned_technician_id = $1 ORDER BY o.created_at DESC`,
+    [isAdmin ? accountId : userId]
   );
   const orders = ordersRes.rows;
   if (orders.length === 0) return [];
 
   const orderIds = orders.map((o: any) => o.id);
-
   const [expRes, attRes, payRes] = await Promise.all([
     pool.query('SELECT * FROM expenses WHERE order_id = ANY($1)', [orderIds]),
     pool.query('SELECT * FROM attendances WHERE order_id = ANY($1) ORDER BY start_time ASC', [orderIds]),
@@ -37,22 +48,16 @@ async function fetchOrders(userId: number) {
   for (const p of payRes.rows) {
     if (!paymentsByOrder[p.order_id]) paymentsByOrder[p.order_id] = [];
     paymentsByOrder[p.order_id].push({
-      id: p.id,
-      orderId: p.order_id,
-      label: p.label,
-      amount: parseFloat(p.amount),
-      date: p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0],
-      status: p.status,
+      id: p.id, orderId: p.order_id, label: p.label, amount: parseFloat(p.amount),
+      date: p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0], status: p.status,
     });
   }
 
   const photosByAtt: Record<string, any[]> = {};
-  const photoEntries = await Promise.all(
-    photoRes.rows.map(async (p: any) => ({
-      attendanceId: p.attendance_id,
-      photo: { id: p.id, key: p.data_url, dataUrl: await getDownloadUrl(p.data_url), name: p.name },
-    }))
-  );
+  const photoEntries = await Promise.all(photoRes.rows.map(async (p: any) => ({
+    attendanceId: p.attendance_id,
+    photo: { id: p.id, key: p.data_url, dataUrl: await getDownloadUrl(p.data_url), name: p.name },
+  })));
   for (const { attendanceId, photo } of photoEntries) {
     if (!photosByAtt[attendanceId]) photosByAtt[attendanceId] = [];
     photosByAtt[attendanceId].push(photo);
@@ -65,41 +70,29 @@ async function fetchOrders(userId: number) {
       id: a.id,
       startTime: a.start_time instanceof Date ? a.start_time.toISOString() : a.start_time,
       endTime: a.end_time instanceof Date ? a.end_time.toISOString() : a.end_time,
-      durationSeconds: a.duration_seconds,
-      description: a.description,
-      photos: photosByAtt[a.id] || [],
+      durationSeconds: a.duration_seconds, description: a.description, photos: photosByAtt[a.id] || [],
     });
   }
 
   return Promise.all(orders.map(async (o: any) => ({
-    id: o.id,
-    clientId: o.client_id,
-    client: o.client_name,
-    address: o.address,
-    phone: o.phone,
-    type: o.type,
-    status: o.status,
+    id: o.id, clientId: o.client_id, client: o.client_name, address: o.address, phone: o.phone,
+    type: o.type, status: o.status,
     date: o.date instanceof Date ? o.date.toISOString().split('T')[0] : String(o.date).split('T')[0],
-    priority: o.priority,
-    description: o.description,
-    clientValue: parseFloat(o.client_value),
+    priority: o.priority, description: o.description, clientValue: parseFloat(o.client_value),
     paymentStatus: o.payment_status,
-    paidDate: o.paid_date
-      ? (o.paid_date instanceof Date ? o.paid_date.toISOString().split('T')[0] : String(o.paid_date).split('T')[0])
-      : undefined,
+    paidDate: o.paid_date ? (o.paid_date instanceof Date ? o.paid_date.toISOString().split('T')[0] : String(o.paid_date).split('T')[0]) : undefined,
     paidAmount: o.paid_amount != null ? parseFloat(o.paid_amount) : undefined,
     clientSignature: (await getDownloadUrl(o.client_signature)) ?? undefined,
     clientSignatureKey: o.client_signature ?? undefined,
-    expenses: expensesByOrder[o.id] || [],
-    attendances: attsByOrder[o.id] || [],
-    payments: paymentsByOrder[o.id] || [],
+    assignedTechnicianId: o.assigned_technician_id ?? undefined,
+    assignedTechnicianName: o.assigned_technician_name ?? undefined,
+    expenses: expensesByOrder[o.id] || [], attendances: attsByOrder[o.id] || [], payments: paymentsByOrder[o.id] || [],
   })));
 }
 
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const orders = await fetchOrders(req.userId);
-    res.json(orders);
+    res.json(await fetchOrders(req.userId));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Erro interno' });
@@ -115,19 +108,23 @@ router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
   const id = o.id || `OS-${ym}-${rand}`;
 
   try {
+    const { accountId } = await getAccessContext(userId);
+    if (o.assignedTechnicianId != null) {
+      const tech = await pool.query('SELECT id, name FROM users WHERE id=$1 AND account_id=$2', [o.assignedTechnicianId, accountId]);
+      if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
+      o.assignedTechnicianName = tech.rows[0].name;
+    }
+
     await pool.query(
-      `INSERT INTO orders (id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date, paid_amount, client_signature)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-      [id, userId, o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status || 'pending',
-       o.date, o.priority || 'medium', o.description || '', o.clientValue || 0,
-       o.paymentStatus || 'pending', o.paidDate || null, o.paidAmount ?? null, o.clientSignatureKey ?? null]
+      `INSERT INTO orders (id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date, paid_amount, client_signature, assigned_technician_id, assigned_technician_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [id, userId, o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status || 'pending', o.date,
+       o.priority || 'medium', o.description || '', o.clientValue || 0, o.paymentStatus || 'pending', o.paidDate || null,
+       o.paidAmount ?? null, o.clientSignatureKey ?? null, o.assignedTechnicianId ?? null, o.assignedTechnicianName ?? null]
     );
 
     for (const e of (o.expenses || [])) {
-      await pool.query(
-        'INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)',
-        [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]
-      );
+      await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
     }
 
     const orders = await fetchOrders(userId);
@@ -144,77 +141,65 @@ router.put('/:id', requireAuth, async (req, res) => {
   const o = req.body;
 
   try {
+    const { accountId, isAdmin } = await getAccessContext(userId);
+    if (o.assignedTechnicianId != null) {
+      const tech = await pool.query('SELECT id, name FROM users WHERE id=$1 AND account_id=$2', [o.assignedTechnicianId, accountId]);
+      if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
+      o.assignedTechnicianName = tech.rows[0].name;
+    }
+
     const updateResult = await pool.query(
       `UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6,
        date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12,
-       paid_amount=$13, client_signature=$14
-       WHERE id=$15 AND user_id=$16`,
-      [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status,
-       o.date, o.priority, o.description || '', o.clientValue,
-       o.paymentStatus, o.paidDate || null,
-       o.paidAmount ?? null, o.clientSignatureKey ?? null, id, userId]
+       paid_amount=$13, client_signature=$14, assigned_technician_id=$15, assigned_technician_name=$16
+       WHERE id=$17 AND ${isAdmin ? 'user_id IN (SELECT id FROM users WHERE account_id=$18)' : '(user_id=$18 OR assigned_technician_id=$18)'}`,
+      [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status, o.date, o.priority,
+       o.description || '', o.clientValue, o.paymentStatus, o.paidDate || null, o.paidAmount ?? null,
+       o.clientSignatureKey ?? null, o.assignedTechnicianId ?? null, o.assignedTechnicianName ?? null, id,
+       isAdmin ? accountId : userId]
     );
 
-    // Se nenhuma linha foi afetada, a ordem não existe ou não pertence a este usuário.
-    // Interrompe aqui para não permitir que dados de expenses/payments/attendances de
-    // outro usuário sejam apagados ou reescritos (IDOR).
-    if (updateResult.rowCount === 0) {
-      return res.status(404).json({ error: 'Ordem não encontrada' });
-    }
+    if (updateResult.rowCount === 0) return res.status(404).json({ error: 'Ordem não encontrada' });
 
-    // Checa o limite de fotos por atendimento do plano ANTES de apagar/regravar
-    // qualquer coisa, para não destruir dados existentes numa requisição rejeitada.
     const ctx = await getAccountContext(userId);
     if (ctx) assertPhotoLimit(ctx.plan, o.attendances || []);
 
     await pool.query('DELETE FROM expenses WHERE order_id = $1', [id]);
     for (const e of (o.expenses || [])) {
-      await pool.query(
-        'INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)',
-        [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]
-      );
+      await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
     }
 
     await pool.query('DELETE FROM order_payments WHERE order_id = $1', [id]);
     for (const p of (o.payments || [])) {
-      await pool.query(
-        'INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)',
-        [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']
-      );
+      await pool.query('INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)', [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
     }
 
     await pool.query('DELETE FROM attendances WHERE order_id = $1', [id]);
     for (const a of (o.attendances || [])) {
-      await pool.query(
-        `INSERT INTO attendances (id, order_id, start_time, end_time, duration_seconds, description)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [a.id || `${Date.now()}-${Math.random()}`, id, a.startTime, a.endTime, a.durationSeconds, a.description || '']
-      );
+      await pool.query(`INSERT INTO attendances (id, order_id, start_time, end_time, duration_seconds, description) VALUES ($1,$2,$3,$4,$5,$6)`, [a.id || `${Date.now()}-${Math.random()}`, id, a.startTime, a.endTime, a.durationSeconds, a.description || '']);
       for (const p of (a.photos || [])) {
-        if (!p.key) continue; // foto sem key válida (ex: upload ainda em andamento) — não persiste
-        await pool.query(
-          'INSERT INTO attendance_photos (id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4)',
-          [p.id || `${Date.now()}-${Math.random()}`, a.id, p.key, p.name || '']
-        );
+        if (!p.key) continue;
+        await pool.query('INSERT INTO attendance_photos (id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4)', [p.id || `${Date.now()}-${Math.random()}`, a.id, p.key, p.name || '']);
       }
     }
 
     const orders = await fetchOrders(userId);
     res.json(orders.find((x: any) => x.id === id));
   } catch (e: any) {
-    if (e?.code === 'PLAN_LIMIT_PHOTOS') {
-      return res.status(e.status || 402).json({ error: e.message, code: e.code });
-    }
+    if (e?.code === 'PLAN_LIMIT_PHOTOS') return res.status(e.status || 402).json({ error: e.message, code: e.code });
     console.error(e);
     res.status(500).json({ error: 'Erro ao atualizar ordem' });
   }
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
-  const userId = req.userId;
-  const { id } = req.params;
   try {
-    await pool.query('DELETE FROM orders WHERE id = $1 AND user_id = $2', [id, userId]);
+    const { accountId, isAdmin } = await getAccessContext(req.userId);
+    const result = await pool.query(
+      `DELETE FROM orders WHERE id = $1 AND ${isAdmin ? 'user_id IN (SELECT id FROM users WHERE account_id=$2)' : 'user_id=$2'}`,
+      [req.params.id, isAdmin ? accountId : req.userId]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Ordem não encontrada' });
     res.json({ success: true });
   } catch (e) {
     console.error(e);
