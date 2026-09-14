@@ -15,8 +15,7 @@ router.get('/', requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int as count
        FROM orders o
-       INNER JOIN users u ON u.id = o.user_id
-       WHERE u.account_id = $1
+       WHERE o.account_id = $1
          AND date_trunc('month', o.created_at) = date_trunc('month', NOW())`,
       [ctx.accountId]
     );
