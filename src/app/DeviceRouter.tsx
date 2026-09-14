@@ -4,54 +4,69 @@ import AdminDashboard from "./AdminDashboard";
 import { api } from "./api";
 
 export default function DeviceRouter() {
-  const [authenticated, setAuthenticated] = useState(() => Boolean(localStorage.getItem("qtecnico_token")));
+  const [authenticated, setAuthenticated] = useState(false);
   const [adminAllowed, setAdminAllowed] = useState(false);
-  const [checkingAdmin, setCheckingAdmin] = useState(() => Boolean(localStorage.getItem("qtecnico_token")));
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     const checkAuth = async () => {
-      const hasToken = Boolean(localStorage.getItem("qtecnico_token"));
-      setAuthenticated(hasToken);
-
-      if (!hasToken) {
-        setAdminAllowed(false);
-        setCheckingAdmin(false);
-        return;
-      }
-
-      // Administrative authorization is role-based and independent of screen
-      // size. An administrator gets the same admin experience on phone,
-      // tablet and desktop; CSS/layout handles responsiveness.
-      setCheckingAdmin(true);
       try {
-        await api.getAdminAccess();
-        setAdminAllowed(true);
+        const user = await api.getMe();
+        if (!mounted) return;
+        setAuthenticated(true);
+        if (user.isAdmin) {
+          await api.getAdminAccess();
+          if (!mounted) return;
+          setAdminAllowed(true);
+        } else {
+          setAdminAllowed(false);
+        }
       } catch {
+        if (!mounted) return;
+        setAuthenticated(false);
         setAdminAllowed(false);
       } finally {
-        setCheckingAdmin(false);
+        if (mounted) setCheckingAdmin(false);
       }
     };
 
     void checkAuth();
 
-    // The existing login flow writes the token in the same tab. Polling keeps
-    // the router independent from the authentication screen.
+    const handleSessionExpired = () => {
+      if (!mounted) return;
+      setAuthenticated(false);
+      setAdminAllowed(false);
+      setCheckingAdmin(false);
+    };
+    window.addEventListener("qtecnico-session-expired", handleSessionExpired);
+
+    // App.tsx still writes a compatibility marker in localStorage. It is not
+    // an authentication credential. Its only purpose here is to detect the
+    // legacy logout action and revoke the real HttpOnly session server-side.
     const authTimer = window.setInterval(() => {
-      const hasToken = Boolean(localStorage.getItem("qtecnico_token"));
-      setAuthenticated((current) => {
-        if (current !== hasToken) void checkAuth();
-        return hasToken;
-      });
+      const marker = localStorage.getItem("qtecnico_token");
+      if (authenticated && !marker) {
+        void api.logout().finally(() => {
+          if (!mounted) return;
+          setAuthenticated(false);
+          setAdminAllowed(false);
+          setCheckingAdmin(false);
+        });
+      } else if (!authenticated && marker) {
+        setCheckingAdmin(true);
+        void checkAuth();
+      }
     }, 500);
 
-    return () => window.clearInterval(authTimer);
-  }, []);
+    return () => {
+      mounted = false;
+      window.clearInterval(authTimer);
+      window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
+    };
+  }, [authenticated]);
 
-  // Role, not device, determines the application experience.
-  if (authenticated && !checkingAdmin && adminAllowed) {
-    return <AdminDashboard />;
-  }
-
+  if (authenticated && !checkingAdmin && adminAllowed) return <AdminDashboard />;
   return <App />;
 }
