@@ -22,20 +22,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // A registration is handled explicitly in src/main.tsx so there is
-      // exactly one PWA registration path and no race with an injected script.
       injectRegister: null,
       registerType: 'autoUpdate',
-
+      selfDestroying: true,
       devOptions: {
         enabled: true,
         type: 'module',
       },
-
-      // Change the SW filename to force existing installations to replace the
-      // previous service worker instead of continuing to serve its old shell.
-      filename: 'sw-v2.js',
-
+      filename: 'sw.js',
       manifest: {
         name: 'QTecnico — Gestão de OS',
         short_name: 'QTecnico',
@@ -65,38 +59,6 @@ export default defineConfig({
           },
         ],
       },
-
-      workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
-        cleanupOutdatedCaches: true,
-
-        // Do not precache index.html. The document must always be obtained
-        // from the server so a new deployment cannot start with an old shell.
-        globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
-        navigateFallbackDenylist: [/^\/api\//],
-
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          {
-            urlPattern: /^https:\/\/.*backblazeb2\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'b2-images-cache',
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
-      },
     }),
   ],
   resolve: {
@@ -104,7 +66,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-
   server: {
     allowedHosts: true,
     proxy: {
@@ -114,6 +75,5 @@ export default defineConfig({
       },
     },
   },
-
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
