@@ -22,6 +22,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...(options.headers || {}),
     },
   });
+
+  if (res.status === 401 && token) {
+    localStorage.removeItem('qtecnico_token');
+    window.dispatchEvent(new CustomEvent('qtecnico-session-expired'));
+  }
+
   const contentType = res.headers.get('content-type') || '';
   const text = await res.text();
   let body: any = null;
