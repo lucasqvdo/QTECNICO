@@ -120,6 +120,44 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/:orderId/attendances/:attendanceId/photos', requireAuth, async (req, res) => {
+  const userId = req.userId;
+  const { orderId, attendanceId } = req.params;
+  const { key, name } = req.body || {};
+  if (!key) return res.status(400).json({ error: 'Chave da imagem não informada' });
+  try {
+    const { accountId, isAdmin } = await getAccessContext(userId);
+    const orderRes = await pool.query(`SELECT id FROM orders WHERE id=$1 AND account_id=$2 AND ${isAdmin ? 'TRUE' : '(user_id=$3 OR assigned_technician_id=$3)'}`, isAdmin ? [orderId, accountId] : [orderId, accountId, userId]);
+    if (!orderRes.rows[0]) return res.status(404).json({ error: 'Ordem não encontrada' });
+    const attRes = await pool.query('SELECT id FROM attendances WHERE id=$1 AND order_id=$2 AND account_id=$3', [attendanceId, orderId, accountId]);
+    if (!attRes.rows[0]) return res.status(404).json({ error: 'Atendimento não encontrado' });
+    const ctx = await getAccountContext(userId);
+    if (ctx) {
+      const photoCount = await pool.query('SELECT COUNT(*)::int AS count FROM attendance_photos WHERE account_id=$1 AND attendance_id=$2', [accountId, attendanceId]);
+      assertPhotoLimit(ctx.plan, [{ id: attendanceId, photos: Array.from({ length: photoCount.rows[0].count }, (_, i) => ({ id: String(i), key: 'existing', dataUrl: '', name: '' })) }, { id: `new-${Date.now()}`, photos: [{ id: 'new', key, dataUrl: '', name: name || '' }] }]);
+    }
+    const photoId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query('INSERT INTO attendance_photos (id, account_id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4,$5)', [photoId, accountId, attendanceId, key, name || '']);
+    const url = await getDownloadUrl(key);
+    res.status(201).json({ photo: { id: photoId, key, dataUrl: url, name: name || '' } });
+  } catch (e: any) {
+    if (e?.code === 'PLAN_LIMIT_PHOTOS') return res.status(e.status || 402).json({ error: e.message, code: e.code });
+    console.error(e); res.status(500).json({ error: 'Erro ao adicionar foto ao atendimento' });
+  }
+});
+
+router.delete('/:orderId/attendances/:attendanceId/photos/:photoId', requireAuth, async (req, res) => {
+  try {
+    const { accountId, isAdmin } = await getAccessContext(req.userId);
+    const { orderId, attendanceId, photoId } = req.params;
+    const orderRes = await pool.query(`SELECT id FROM orders WHERE id=$1 AND account_id=$2 AND ${isAdmin ? 'TRUE' : '(user_id=$3 OR assigned_technician_id=$3)'}`, isAdmin ? [orderId, accountId] : [orderId, accountId, req.userId]);
+    if (!orderRes.rows[0]) return res.status(404).json({ error: 'Ordem não encontrada' });
+    const result = await pool.query('DELETE FROM attendance_photos WHERE id=$1 AND attendance_id=$2 AND account_id=$3', [photoId, attendanceId, accountId]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Foto não encontrada' });
+    res.json({ success: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao remover foto' }); }
+});
+
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { accountId, isAdmin } = await getAccessContext(req.userId);
