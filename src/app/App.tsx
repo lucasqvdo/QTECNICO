@@ -15,6 +15,7 @@ import { startAuthentication, startRegistration } from "@simplewebauthn/browser"
 import logoImg from "@/imports/ChatGPT_Image_8_de_jun._de_2026__11_15_09.png";
 import { Screen, OrderStatus, ServiceOrder, Client, Attendance, AttendancePhoto, PaymentStatus, Payment } from "./types";
 import { api } from "./api";
+import SecureLoginScreen from "./components/SecureLoginScreen";
 
 /* ─── Configs ───────────────────────────────────────────────── */
 
@@ -215,6 +216,17 @@ export default function App() {
   };
 
   useEffect(() => {
+    const handleSessionExpired = () => {
+      setOrders([]);
+      setClients([]);
+      setScreen("login");
+      setLoginPassword("");
+    };
+    window.addEventListener("qtecnico-session-expired", handleSessionExpired);
+    return () => window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
+  }, []);
+
+  useEffect(() => {
     const token = localStorage.getItem("qtecnico_token");
     if (token) {
       loadData()
@@ -247,10 +259,6 @@ export default function App() {
     await afterAuth(token, user);
   };
 
-  const handlePasswordResetRequest = (email: string) => api.requestPasswordReset(email);
-
-  const handlePasswordReset = (resetToken: string, password: string) =>
-    api.resetPassword(resetToken, password);
 
   const handleActivateBiometric = async () => {
     if (!window.PublicKeyCredential) throw new Error("Este dispositivo não oferece suporte a login biométrico.");
@@ -337,11 +345,10 @@ export default function App() {
   };
 
   if (screen === "login")
-    return <LoginScreen email={loginEmail} password={loginPassword} error={loginError}
+    return <SecureLoginScreen email={loginEmail} password={loginPassword} error={loginError}
       onEmailChange={v => { setLoginEmail(v); setLoginError(false); }}
       onPasswordChange={v => { setLoginPassword(v); setLoginError(false); }}
-      onLogin={handleLogin} onRegister={handleRegister} onBiometricLogin={handleBiometricLogin}
-      onPasswordResetRequest={handlePasswordResetRequest} onPasswordReset={handlePasswordReset} />;
+      onLogin={handleLogin} onRegister={handleRegister} onBiometricLogin={handleBiometricLogin} />;
 
   const navItems: { key: typeof activeTab; label: string; icon: React.ReactNode }[] = [
     { key: "orders",     label: "Ordens de Serviço", icon: <ClipboardList size={20} /> },
@@ -485,353 +492,7 @@ export default function App() {
   );
 }
 
-/* ─── Login ─────────────────────────────────────────────────── */
-
-function LoginScreen({ email, password, error, onEmailChange, onPasswordChange, onLogin, onRegister,
-  onBiometricLogin, onPasswordResetRequest, onPasswordReset }: {
-  email: string; password: string; error: boolean;
-  onEmailChange: (v: string) => void; onPasswordChange: (v: string) => void;
-  onLogin: () => void; onRegister: (name: string, email: string, password: string) => Promise<void>;
-  onBiometricLogin: (email: string) => Promise<void>;
-  onPasswordResetRequest: (email: string) => Promise<{ exists: boolean; resetToken: string }>;
-  onPasswordReset: (resetToken: string, password: string) => Promise<{ success: boolean }>;
-}) {
-  const [mode, setMode] = useState<"login" | "register" | "forgot" | "reset">("login");
-  const [remember, setRemember] = useState(() => localStorage.getItem("qtecnico_remember") === "true");
-  const [showPass, setShowPass] = useState(false);
-  // Register fields
-  const [regName, setRegName] = useState("");
-  const [regEmail, setRegEmail] = useState("");
-  const [regPass, setRegPass] = useState("");
-  const [regConfirm, setRegConfirm] = useState("");
-  const [regError, setRegError] = useState("");
-  const [regLoading, setRegLoading] = useState(false);
-  const [resetEmail, setResetEmail] = useState(email);
-  const [resetToken, setResetToken] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
-  const [resetError, setResetError] = useState("");
-  const [resetLoading, setResetLoading] = useState(false);
-  const [resetSuccess, setResetSuccess] = useState(false);
-  const [biometricLoading, setBiometricLoading] = useState(false);
-  const [biometricError, setBiometricError] = useState("");
-
-  useEffect(() => {
-    if (localStorage.getItem("qtecnico_remember") === "true") {
-      const savedEmail = localStorage.getItem("qtecnico_email") || "";
-      const savedPass  = localStorage.getItem("qtecnico_pass")  || "";
-      if (savedEmail) onEmailChange(savedEmail);
-      if (savedPass)  onPasswordChange(savedPass);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleLogin = () => {
-    if (remember) {
-      localStorage.setItem("qtecnico_remember", "true");
-      localStorage.setItem("qtecnico_email", email);
-      localStorage.setItem("qtecnico_pass",  password);
-    } else {
-      localStorage.removeItem("qtecnico_remember");
-      localStorage.removeItem("qtecnico_email");
-      localStorage.removeItem("qtecnico_pass");
-    }
-    onLogin();
-  };
-
-  const handleBiometricLogin = async () => {
-    setBiometricError("");
-    if (!email.trim()) return setBiometricError("Informe seu e-mail para usar a biometria.");
-    setBiometricLoading(true);
-    try {
-      await onBiometricLogin(email.trim());
-    } catch (e: any) {
-      setBiometricError(e.message || "Não foi possível entrar com a biometria.");
-    } finally {
-      setBiometricLoading(false);
-    }
-  };
-
-  const handleRegister = async () => {
-    setRegError("");
-    if (!regName.trim()) return setRegError("Informe seu nome.");
-    if (!regEmail.trim()) return setRegError("Informe o e-mail.");
-    if (regPass.length < 6) return setRegError("A senha deve ter no mínimo 6 caracteres.");
-    if (regPass !== regConfirm) return setRegError("As senhas não coincidem.");
-    setRegLoading(true);
-    try {
-      await onRegister(regName.trim(), regEmail.trim(), regPass);
-    } catch (e: any) {
-      setRegError(e.message || "Erro ao criar conta.");
-    } finally {
-      setRegLoading(false);
-    }
-  };
-
-  const handleResetRequest = async () => {
-    setResetError("");
-    if (!resetEmail.trim()) return setResetError("Informe o e-mail da conta.");
-    setResetLoading(true);
-    try {
-      const result = await onPasswordResetRequest(resetEmail.trim());
-      setResetToken(result.resetToken);
-      setMode("reset");
-    } catch (e: any) {
-      setResetError(e.message || "Não foi possível verificar a conta.");
-    } finally {
-      setResetLoading(false);
-    }
-  };
-
-  const handleResetPassword = async () => {
-    setResetError("");
-    if (newPassword.length < 6) return setResetError("A senha deve ter no mínimo 6 caracteres.");
-    if (newPassword !== newPasswordConfirm) return setResetError("As senhas não coincidem.");
-    setResetLoading(true);
-    try {
-      await onPasswordReset(resetToken, newPassword);
-      setResetSuccess(true);
-      setNewPassword("");
-      setNewPasswordConfirm("");
-    } catch (e: any) {
-      setResetError(e.message || "Não foi possível alterar a senha.");
-    } finally {
-      setResetLoading(false);
-    }
-  };
-
-  const backToLogin = () => {
-    setMode("login");
-    setResetError("");
-    setResetSuccess(false);
-    setResetToken("");
-  };
-
-  const toggleRemember = () => {
-    const next = !remember;
-    setRemember(next);
-    if (!next) {
-      localStorage.removeItem("qtecnico_remember");
-      localStorage.removeItem("qtecnico_email");
-      localStorage.removeItem("qtecnico_pass");
-    }
-  };
-
-  const inputCls = "w-full px-4 py-3 rounded-xl bg-secondary text-foreground placeholder-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all";
-
-  return (
-    <div className="min-h-screen bg-primary flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div className="flex-1 flex flex-col justify-end px-6 pb-0">
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-white mb-1">
-            {mode === "login" ? "Bem-vindo!" : mode === "register" ? "Criar conta" : "Recuperar acesso"}
-          </h1>
-          <p className="text-white/50 text-sm">
-            {mode === "login" ? "Acesse sua conta para continuar." : mode === "register" ? "Preencha os dados para se cadastrar." : "Volte a acessar sua conta com segurança."}
-          </p>
-        </div>
-      </div>
-
-      <div className="bg-background rounded-t-3xl px-6 pt-8 pb-10 overflow-y-auto">
-        <div className="flex flex-col items-center mb-6">
-          <ImageWithFallback src={logoImg} alt="QTecnico logo" className="w-20 h-20 object-contain" />
-          <h2 className="text-2xl font-bold tracking-tight mt-2" style={{ color: "var(--primary)" }}>
-            Q<span style={{ color: "var(--accent)" }}>Tecnico</span>
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Gestão de Ordens de Serviço</p>
-        </div>
-
-        {mode === "login" ? (
-          <>
-            <p className="text-base font-semibold text-foreground mb-4">Entrar na sua conta</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
-                <input type="email" value={email} onChange={e => onEmailChange(e.target.value)}
-                  placeholder="seu@email.com" className={inputCls}
-                  onKeyDown={e => e.key === "Enter" && handleLogin()} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
-                <div className="relative">
-                  <input type={showPass ? "text" : "password"} value={password} onChange={e => onPasswordChange(e.target.value)}
-                    placeholder="••••••••" className={`${inputCls} pr-12`}
-                    onKeyDown={e => e.key === "Enter" && handleLogin()} />
-                  <button type="button" onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
-                    {showPass ? "Ocultar" : "Ver"}
-                  </button>
-                </div>
-              </div>
-
-              {error && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
-                  <AlertCircle size={14} /><span>E-mail ou senha incorretos.</span>
-                </div>
-              )}
-
-              <button type="button" onClick={toggleRemember} className="flex items-center gap-3 w-full group">
-                <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all"
-                  style={{ borderColor: remember ? "var(--primary)" : "var(--border)", background: remember ? "var(--primary)" : "transparent" }}>
-                  {remember && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                </div>
-                <span className="text-sm text-foreground group-hover:text-primary transition-colors">Lembrar meus dados</span>
-              </button>
-
-              <button onClick={handleLogin}
-                className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
-                style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
-                Entrar
-              </button>
-
-              <button onClick={handleBiometricLogin} disabled={biometricLoading}
-                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
-                style={{ borderColor: "var(--accent)", color: "var(--primary)", background: "transparent" }}>
-                <Fingerprint size={18} />
-                {biometricLoading ? "Validando..." : "Entrar com biometria"}
-              </button>
-              {biometricError && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
-                  <AlertCircle size={14} /><span>{biometricError}</span>
-                </div>
-              )}
-
-              <button onClick={() => { setResetEmail(email); setResetError(""); setMode("forgot"); }}
-                className="w-full text-sm font-semibold transition-colors hover:underline"
-                style={{ color: "var(--primary)" }}>
-                Esqueci minha senha
-              </button>
-
-              <button onClick={() => setMode("register")}
-                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
-                style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
-                Criar conta
-              </button>
-
-              <p className="text-xs text-muted-foreground text-center">
-                Demo: <span className="font-mono">lucas.qtech@gmail.com</span> / <span className="font-mono">123456</span>
-              </p>
-            </div>
-          </>
-        ) : mode === "register" ? (
-          <>
-            <p className="text-base font-semibold text-foreground mb-4">Cadastrar nova conta</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Nome completo</label>
-                <input type="text" value={regName} onChange={e => setRegName(e.target.value)}
-                  placeholder="João Silva" className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail</label>
-                <input type="email" value={regEmail} onChange={e => setRegEmail(e.target.value)}
-                  placeholder="seu@email.com" className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Senha</label>
-                <div className="relative">
-                  <input type={showPass ? "text" : "password"} value={regPass} onChange={e => setRegPass(e.target.value)}
-                    placeholder="Mínimo 6 caracteres" className={`${inputCls} pr-12`} />
-                  <button type="button" onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-1 py-0.5">
-                    {showPass ? "Ocultar" : "Ver"}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Confirmar senha</label>
-                <input type={showPass ? "text" : "password"} value={regConfirm} onChange={e => setRegConfirm(e.target.value)}
-                  placeholder="Repita a senha" className={inputCls}
-                  onKeyDown={e => e.key === "Enter" && handleRegister()} />
-              </div>
-
-              {regError && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
-                  <AlertCircle size={14} /><span>{regError}</span>
-                </div>
-              )}
-
-              <button onClick={handleRegister} disabled={regLoading}
-                className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-60"
-                style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
-                {regLoading ? "Criando conta..." : "Criar conta"}
-              </button>
-
-              <button onClick={backToLogin}
-                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
-                style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
-                Voltar para o login
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="text-base font-semibold text-foreground mb-2">
-              {mode === "forgot" ? "Verificar sua conta" : "Criar nova senha"}
-            </p>
-            <p className="text-sm text-muted-foreground mb-4">
-              {mode === "forgot"
-                ? "Informe o e-mail cadastrado para continuar."
-                : resetSuccess
-                  ? "Senha alterada com sucesso. Agora você já pode entrar."
-                  : `Conta encontrada para ${resetEmail}. Escolha uma nova senha.`}
-            </p>
-            <div className="space-y-4">
-              {mode === "forgot" ? (
-                <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">E-mail da conta</label>
-                  <input type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)}
-                    placeholder="seu@email.com" className={inputCls}
-                    onKeyDown={e => e.key === "Enter" && handleResetRequest()} />
-                </div>
-              ) : !resetSuccess ? (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Nova senha</label>
-                    <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                      placeholder="Mínimo 6 caracteres" className={inputCls} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Confirmar nova senha</label>
-                    <input type="password" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)}
-                      placeholder="Repita a nova senha" className={inputCls}
-                      onKeyDown={e => e.key === "Enter" && handleResetPassword()} />
-                  </div>
-                </>
-              ) : null}
-
-              {resetError && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm">
-                  <AlertCircle size={14} /><span>{resetError}</span>
-                </div>
-              )}
-              {resetSuccess && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 text-green-700 text-sm">
-                  <CheckCircle2 size={14} /><span>Sua senha foi atualizada.</span>
-                </div>
-              )}
-
-              {!resetSuccess && (
-                <button onClick={mode === "forgot" ? handleResetRequest : handleResetPassword} disabled={resetLoading}
-                  className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-60"
-                  style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
-                  {resetLoading ? "Aguarde..." : mode === "forgot" ? "Verificar conta" : "Alterar senha"}
-                </button>
-              )}
-              <button onClick={backToLogin}
-                className="w-full py-3 rounded-xl font-semibold text-sm border-2 transition-all active:scale-95"
-                style={{ borderColor: "var(--primary)", color: "var(--primary)", background: "transparent" }}>
-                Voltar para o login
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Orders Tab ─────────────────────────────────────────────── */
+40038
 
 function OrdersTab({ orders, allOrders, searchQuery, filterStatus, counts, onSearch, onFilterChange, onSelectOrder }: {
   orders: ServiceOrder[]; allOrders: ServiceOrder[]; searchQuery: string; filterStatus: OrderStatus | "all";
