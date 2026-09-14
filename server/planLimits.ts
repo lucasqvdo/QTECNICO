@@ -26,8 +26,7 @@ export async function getAccountContext(userId: number): Promise<AccountContext 
 
 /**
  * Middleware: bloqueia criação de novas ordens quando a account já atingiu o
- * limite mensal do plano. Anexa `res.locals.account` para as rotas reaproveitarem
- * sem consultar o banco de novo.
+ * limite mensal do plano. O limite é compartilhado por todos os usuários da empresa.
  */
 export function enforceOrderLimit() {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -42,9 +41,11 @@ export function enforceOrderLimit() {
     if (limit === null) return next(); // ilimitado
 
     const { rows } = await pool.query(
-      `SELECT COUNT(*)::int as count FROM orders
-       WHERE user_id = $1 AND date_trunc('month', created_at) = date_trunc('month', NOW())`,
-      [userId]
+      `SELECT COUNT(*)::int as count FROM orders o
+       JOIN users u ON u.id = o.user_id
+       WHERE u.account_id = $1
+         AND date_trunc('month', o.created_at) = date_trunc('month', NOW())`,
+      [ctx.accountId]
     );
     const usedThisMonth = rows[0].count as number;
 
