@@ -104,8 +104,15 @@ function SignaturePad({ onSave, onCancel }: { onSave: (result: { key: string; ur
 
 /* ─── Attendance Card ────────────────────────────────────────── */
 
-function AttendanceCard({ att, onDeletePhoto }: { att: Attendance; onDeletePhoto: (id: string) => void }) {
+function AttendanceCard({ att, onDeletePhoto, onAddPhoto, uploading }: {
+  att: Attendance;
+  onDeletePhoto: (id: string) => void;
+  onAddPhoto: (files: File[]) => void;
+  uploading: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="border border-border rounded-xl overflow-hidden">
       <button onClick={() => setExpanded(!expanded)}
@@ -135,6 +142,16 @@ function AttendanceCard({ att, onDeletePhoto }: { att: Attendance; onDeletePhoto
               ))}
             </div>
           )}
+          <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden"
+            onChange={e => {
+              const files = Array.from(e.target.files || []);
+              e.target.value = "";
+              if (files.length) onAddPhoto(files);
+            }} />
+          <button onClick={() => photoInputRef.current?.click()} disabled={uploading}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors disabled:opacity-50">
+            <Image size={15} /> {uploading ? "Enviando foto..." : "Adicionar foto"}
+          </button>
         </div>
       )}
     </div>
@@ -189,112 +206,27 @@ function PaymentsCard({ order, onUpdate }: { order: ServiceOrder; onUpdate: (o: 
           </div>
         )}
       </div>
-
       {sorted.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl p-2.5 border border-green-100 bg-green-50 text-center">
-            <p className="text-xs text-muted-foreground mb-0.5">Recebido</p>
-            <p className="text-xs font-bold font-mono text-green-700">{fmt(totalPaid)}</p>
-          </div>
-          <div className="rounded-xl p-2.5 border border-amber-100 bg-amber-50 text-center">
-            <p className="text-xs text-muted-foreground mb-0.5">Pendente</p>
-            <p className="text-xs font-bold font-mono text-amber-700">{fmt(totalPending)}</p>
-          </div>
-          <div className={`rounded-xl p-2.5 border text-center ${balance > 0 ? "border-blue-100 bg-blue-50" : balance < 0 ? "border-orange-100 bg-orange-50" : "border-border bg-secondary"}`}>
-            <p className="text-xs text-muted-foreground mb-0.5">Saldo OS</p>
-            <p className={`text-xs font-bold font-mono ${balance > 0 ? "text-blue-700" : balance < 0 ? "text-orange-700" : "text-foreground"}`}>{fmt(Math.abs(balance))}{balance < 0 ? " +" : ""}</p>
-          </div>
+          <div className="rounded-xl p-2.5 border border-green-100 bg-green-50 text-center"><p className="text-xs text-muted-foreground mb-0.5">Recebido</p><p className="text-xs font-bold font-mono text-green-700">{fmt(totalPaid)}</p></div>
+          <div className="rounded-xl p-2.5 border border-amber-100 bg-amber-50 text-center"><p className="text-xs text-muted-foreground mb-0.5">Pendente</p><p className="text-xs font-bold font-mono text-amber-700">{fmt(totalPending)}</p></div>
+          <div className={`rounded-xl p-2.5 border text-center ${balance > 0 ? "border-blue-100 bg-blue-50" : balance < 0 ? "border-orange-100 bg-orange-50" : "border-border bg-secondary"}`}><p className="text-xs text-muted-foreground mb-0.5">Saldo OS</p><p className={`text-xs font-bold font-mono ${balance > 0 ? "text-blue-700" : balance < 0 ? "text-orange-700" : "text-foreground"}`}>{fmt(Math.abs(balance))}{balance < 0 ? " +" : ""}</p></div>
         </div>
       )}
-
-      {sorted.length > 0 && (
-        <div className="space-y-2">
-          {sorted.map(p => (
-            <div key={p.id} className="flex items-center gap-2 p-3 rounded-xl border border-border bg-secondary/30">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-sm font-semibold text-foreground">{p.label}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${p.status === "paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                    {p.status === "paid" ? "Recebido" : "Pendente"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-sm font-mono font-bold">{fmt(p.amount)}</span>
-                  <span className="text-xs text-muted-foreground">· {new Date(p.date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {p.status === "pending" && (
-                  <button onClick={() => markPaid(p.id)}
-                    className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all active:scale-95"
-                    style={{ background: "#DCFCE7", color: "#15803D" }}>
-                    Receber
-                  </button>
-                )}
-                <button onClick={() => removePay(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 transition-colors">
-                  <Trash2 size={12} className="text-destructive" />
-                </button>
-              </div>
-            </div>
-          ))}
+      {sorted.length > 0 && <div className="space-y-2">{sorted.map(p => (
+        <div key={p.id} className="flex items-center gap-2 p-3 rounded-xl border border-border bg-secondary/30">
+          <div className="flex-1 min-w-0"><div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-semibold text-foreground">{p.label}</span><span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${p.status === "paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>{p.status === "paid" ? "Recebido" : "Pendente"}</span></div><div className="flex items-center gap-2 mt-0.5"><span className="text-sm font-mono font-bold">{fmt(p.amount)}</span><span className="text-xs text-muted-foreground">· {new Date(p.date + "T12:00:00").toLocaleDateString("pt-BR")}</span></div></div>
+          <div className="flex items-center gap-1 flex-shrink-0">{p.status === "pending" && <button onClick={() => markPaid(p.id)} className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all active:scale-95" style={{ background: "#DCFCE7", color: "#15803D" }}>Receber</button>}<button onClick={() => removePay(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"><Trash2 size={12} className="text-destructive" /></button></div>
         </div>
-      )}
-
-      {order.clientValue > 0 && sorted.length > 0 && balance !== 0 && (
-        <p className={`text-xs px-3 py-1.5 rounded-lg font-medium ${balance > 0 ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}>
-          {balance > 0 ? `${fmt(balance)} ainda não agendado` : `${fmt(Math.abs(balance))} acima do valor da OS`}
-        </p>
-      )}
-
+      ))}</div>}
+      {order.clientValue > 0 && sorted.length > 0 && balance !== 0 && <p className={`text-xs px-3 py-1.5 rounded-lg font-medium ${balance > 0 ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}>{balance > 0 ? `${fmt(balance)} ainda não agendado` : `${fmt(Math.abs(balance))} acima do valor da OS`}</p>}
       {showForm ? (
         <div className="border border-dashed border-border rounded-xl p-4 space-y-3">
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Descrição</label>
-              <input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Ex: Entrada, Parcela 1..."
-                className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-            <div className="w-28">
-              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Valor (R$)</label>
-              <input type="number" value={newAmt} onChange={e => setNewAmt(e.target.value)} placeholder="0,00"
-                className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Data</label>
-              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Status</label>
-              <div className="flex gap-1.5 h-[38px]">
-                <button onClick={() => setNewStatus("pending")} className="flex-1 rounded-xl text-xs font-semibold transition-all"
-                  style={newStatus === "pending" ? { background: "#FEF3C7", color: "#D97706" } : { background: "var(--secondary)", color: "var(--muted-foreground)" }}>
-                  Pendente
-                </button>
-                <button onClick={() => setNewStatus("paid")} className="flex-1 rounded-xl text-xs font-semibold transition-all"
-                  style={newStatus === "paid" ? { background: "#DCFCE7", color: "#15803D" } : { background: "var(--secondary)", color: "var(--muted-foreground)" }}>
-                  Recebido
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowForm(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">Cancelar</button>
-            <button onClick={addPayment} disabled={!newAmt}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-40"
-              style={{ background: "var(--primary)" }}>
-              Adicionar
-            </button>
-          </div>
+          <div className="flex gap-2"><div className="flex-1"><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Descrição</label><input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Ex: Entrada, Parcela 1..." className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div><div className="w-28"><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Valor (R$)</label><input type="number" value={newAmt} onChange={e => setNewAmt(e.target.value)} placeholder="0,00" className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div></div>
+          <div className="flex gap-2"><div className="flex-1"><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Data</label><input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div><div className="flex-1"><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Status</label><div className="flex gap-1.5 h-[38px]"><button onClick={() => setNewStatus("pending")} className="flex-1 rounded-xl text-xs font-semibold transition-all" style={newStatus === "pending" ? { background: "#FEF3C7", color: "#D97706" } : { background: "var(--secondary)", color: "var(--muted-foreground)" }}>Pendente</button><button onClick={() => setNewStatus("paid")} className="flex-1 rounded-xl text-xs font-semibold transition-all" style={newStatus === "paid" ? { background: "#DCFCE7", color: "#15803D" } : { background: "var(--secondary)", color: "var(--muted-foreground)" }}>Recebido</button></div></div></div>
+          <div className="flex gap-2"><button onClick={() => setShowForm(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">Cancelar</button><button onClick={addPayment} disabled={!newAmt} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-40" style={{ background: "var(--primary)" }}>Adicionar</button></div>
         </div>
-      ) : (
-        <button onClick={openForm}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground">
-          <Plus size={14} /> Adicionar pagamento
-        </button>
-      )}
+      ) : <button onClick={openForm} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"><Plus size={14} /> Adicionar pagamento</button>}
     </div>
   );
 }
@@ -315,6 +247,7 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
   const photoRef = useRef<HTMLInputElement>(null);
   const [showSigPad, setShowSigPad] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [addingPhotoToAttendance, setAddingPhotoToAttendance] = useState<string | null>(null);
 
   useEffect(() => {
     if (!timerActive || !timerStart) return;
@@ -327,14 +260,7 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
 
   const saveAttendance = () => {
     if (!timerStart || pendingDesc === null) return;
-    const att: Attendance = {
-      id: Date.now().toString(),
-      startTime: timerStart.toISOString(),
-      endTime: new Date().toISOString(),
-      durationSeconds: elapsed,
-      description: pendingDesc,
-      photos: pendingPhotos,
-    };
+    const att: Attendance = { id: Date.now().toString(), startTime: timerStart.toISOString(), endTime: new Date().toISOString(), durationSeconds: elapsed, description: pendingDesc, photos: pendingPhotos };
     onUpdate({ ...order, attendances: [...order.attendances, att] });
     setTimerStart(null); setElapsed(0); setPendingDesc(null); setPendingPhotos([]);
   };
@@ -353,6 +279,26 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
       console.error("Erro ao enviar foto:", err);
     } finally {
       setUploadingPhotos(false);
+    }
+  };
+
+  const addPhotoToAttendance = async (attId: string, files: File[]) => {
+    setAddingPhotoToAttendance(attId);
+    try {
+      const target = order.attendances.find(a => a.id === attId);
+      if (!target) return;
+      const added: AttendancePhoto[] = [];
+      for (const file of files) {
+        const { key, url } = await api.uploadPhoto(file, 'attendances');
+        added.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, key, dataUrl: url, name: file.name });
+      }
+      if (added.length > 0) {
+        onUpdate({ ...order, attendances: order.attendances.map(a => a.id === attId ? { ...a, photos: [...a.photos, ...added] } : a) });
+      }
+    } catch (err) {
+      console.error("Erro ao adicionar foto ao atendimento:", err);
+    } finally {
+      setAddingPhotoToAttendance(null);
     }
   };
 
@@ -386,222 +332,32 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
       <div className="bg-primary text-primary-foreground px-4 pt-10 pb-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><ArrowLeft size={18} /></button>
-          <div className="flex-1 min-w-0">
-            <p className="font-mono text-xs text-primary-foreground/60">{order.id}</p>
-            <h2 className="font-semibold text-base truncate">{order.type}</h2>
-          </div>
-          <button onClick={() => exportPDF(order, client, techName)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors">
-            <Download size={14} /> PDF
-          </button>
+          <div className="flex-1 min-w-0"><p className="font-mono text-xs text-primary-foreground/60">{order.id}</p><h2 className="font-semibold text-base truncate">{order.type}</h2></div>
+          <button onClick={() => exportPDF(order, client, techName)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors"><Download size={14} /> PDF</button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
-        <div className="flex gap-2 flex-wrap">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ color: status.color, background: status.bg }}>
-            {status.icon} {status.label}
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-secondary text-foreground">
-            <span className="w-2 h-2 rounded-full" style={{ background: priority.color }} /> Prioridade {priority.label}
-          </span>
+        <div className="flex gap-2 flex-wrap"><span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ color: status.color, background: status.bg }}>{status.icon} {status.label}</span><span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-secondary text-foreground"><span className="w-2 h-2 rounded-full" style={{ background: priority.color }} /> Prioridade {priority.label}</span></div>
+
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Cliente</h3><p className="font-semibold text-foreground">{order.client}</p>{client && <p className="text-xs text-muted-foreground font-mono">{client.document}</p>}<div className="space-y-2"><InfoRow icon={<MapPin size={13} />} text={order.address} /><InfoRow icon={<Phone size={13} />} text={order.phone} /><InfoRow icon={<Calendar size={13} />} text={dateStr} /></div></div>
+
+        <div className="bg-card border border-border rounded-2xl p-4"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Descrição</h3><p className="text-sm text-foreground leading-relaxed">{order.description}</p></div>
+
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Assinatura do cliente</h3>{order.clientSignature ? (<div><img src={order.clientSignature} alt="Assinatura do cliente" className="w-full max-h-28 object-contain bg-white rounded-xl border border-border p-2" /><div className="flex gap-3 mt-2"><button onClick={() => setShowSigPad(true)} className="text-xs text-primary font-semibold hover:underline transition-colors">Refazer</button><button onClick={() => onUpdate({ ...order, clientSignature: undefined, clientSignatureKey: undefined })} className="text-xs text-destructive font-semibold hover:underline transition-colors">Remover</button></div></div>) : showSigPad ? (<SignaturePad onSave={({ key, url }) => { onUpdate({ ...order, clientSignature: url, clientSignatureKey: key }); setShowSigPad(false); }} onCancel={() => setShowSigPad(false)} />) : (<button onClick={() => setShowSigPad(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"><PenLine size={15} /> Coletar assinatura do cliente</button>)}</div>
+
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-4"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Atendimentos</h3>
+          {timerActive && <div className="rounded-2xl p-4 text-center space-y-3" style={{ background: "var(--primary)" }}><p className="text-primary-foreground/70 text-xs font-semibold uppercase tracking-widest">Atendimento em curso</p><p className="text-5xl font-mono font-bold text-white tracking-widest">{fmtDuration(elapsed)}</p><button onClick={stopTimer} className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95" style={{ background: "#EF4444", color: "white" }}><Square size={14} fill="white" /> Encerrar atendimento</button></div>}
+          {!timerActive && pendingDesc !== null && <div className="border border-dashed border-border rounded-xl p-4 space-y-3"><div className="flex items-center gap-2 text-sm font-semibold text-foreground"><CheckCircle2 size={16} className="text-green-600" /> Duração: <span className="font-mono">{fmtDuration(elapsed)}</span></div><div><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">O que foi feito *</label><textarea value={pendingDesc} onChange={e => setPendingDesc(e.target.value)} rows={3} placeholder="Descreva as atividades realizadas neste atendimento..." className="w-full px-3 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none" /></div><div><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Fotos ({pendingPhotos.length})</label><div className="flex flex-wrap gap-2 mb-2">{pendingPhotos.map(p => <div key={p.id} className="relative"><img src={p.dataUrl} alt={p.name} className="w-20 h-20 object-cover rounded-xl border border-border" /><button onClick={() => removePhoto(p.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center"><X size={10} color="white" /></button></div>)}<button onClick={() => photoRef.current?.click()} disabled={uploadingPhotos} className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-primary/40 transition-colors disabled:opacity-50">{uploadingPhotos ? <span className="text-xs">Enviando...</span> : <><Image size={18} /><span className="text-xs">Adicionar</span></>}</button></div></div><div className="flex gap-2"><button onClick={() => { setPendingDesc(null); setPendingPhotos([]); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">Cancelar</button><button onClick={saveAttendance} disabled={!pendingDesc?.trim()} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-40" style={{ background: "var(--primary)" }}>Salvar atendimento</button></div></div>}
+          {!timerActive && pendingDesc === null && order.status !== "cancelled" && <button onClick={startTimer} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95" style={{ background: "var(--primary)", color: "white" }}><Play size={15} fill="white" /> Iniciar atendimento</button>}
+          {order.attendances.length > 0 && <div className="space-y-3"><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Histórico ({order.attendances.length})</p>{order.attendances.map(att => <AttendanceCard key={att.id} att={att} onDeletePhoto={pid => deleteAttPhoto(att.id, pid)} onAddPhoto={files => addPhotoToAttendance(att.id, files)} uploading={addingPhotoToAttendance === att.id} />)}</div>}
         </div>
 
-        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Cliente</h3>
-          <p className="font-semibold text-foreground">{order.client}</p>
-          {client && <p className="text-xs text-muted-foreground font-mono">{client.document}</p>}
-          <div className="space-y-2">
-            <InfoRow icon={<MapPin size={13} />} text={order.address} />
-            <InfoRow icon={<Phone size={13} />} text={order.phone} />
-            <InfoRow icon={<Calendar size={13} />} text={dateStr} />
-          </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-2xl p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Descrição</h3>
-          <p className="text-sm text-foreground leading-relaxed">{order.description}</p>
-        </div>
-
-        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Assinatura do cliente</h3>
-          {order.clientSignature ? (
-            <div>
-              <img src={order.clientSignature} alt="Assinatura do cliente"
-                className="w-full max-h-28 object-contain bg-white rounded-xl border border-border p-2" />
-              <div className="flex gap-3 mt-2">
-                <button onClick={() => setShowSigPad(true)} className="text-xs text-primary font-semibold hover:underline transition-colors">Refazer</button>
-                <button onClick={() => onUpdate({ ...order, clientSignature: undefined, clientSignatureKey: undefined })}
-                  className="text-xs text-destructive font-semibold hover:underline transition-colors">Remover</button>
-              </div>
-            </div>
-          ) : showSigPad ? (
-            <SignaturePad
-              onSave={({ key, url }) => { onUpdate({ ...order, clientSignature: url, clientSignatureKey: key }); setShowSigPad(false); }}
-              onCancel={() => setShowSigPad(false)}
-            />
-          ) : (
-            <button onClick={() => setShowSigPad(true)}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 border-2 border-dashed border-border text-muted-foreground hover:border-primary/30 hover:text-foreground">
-              <PenLine size={15} /> Coletar assinatura do cliente
-            </button>
-          )}
-        </div>
-
-        <div className="bg-card border border-border rounded-2xl p-4 space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Atendimentos</h3>
-
-          {timerActive && (
-            <div className="rounded-2xl p-4 text-center space-y-3" style={{ background: "var(--primary)" }}>
-              <p className="text-primary-foreground/70 text-xs font-semibold uppercase tracking-widest">Atendimento em curso</p>
-              <p className="text-5xl font-mono font-bold text-white tracking-widest">{fmtDuration(elapsed)}</p>
-              <button onClick={stopTimer}
-                className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
-                style={{ background: "#EF4444", color: "white" }}>
-                <Square size={14} fill="white" /> Encerrar atendimento
-              </button>
-            </div>
-          )}
-
-          {!timerActive && pendingDesc !== null && (
-            <div className="border border-dashed border-border rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <CheckCircle2 size={16} className="text-green-600" />
-                Duração: <span className="font-mono">{fmtDuration(elapsed)}</span>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">O que foi feito *</label>
-                <textarea value={pendingDesc} onChange={e => setPendingDesc(e.target.value)} rows={3}
-                  placeholder="Descreva as atividades realizadas neste atendimento..."
-                  className="w-full px-3 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Fotos ({pendingPhotos.length})</label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {pendingPhotos.map(p => (
-                    <div key={p.id} className="relative">
-                      <img src={p.dataUrl} alt={p.name} className="w-20 h-20 object-cover rounded-xl border border-border" />
-                      <button onClick={() => removePhoto(p.id)}
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                        <X size={10} color="white" />
-                      </button>
-                    </div>
-                  ))}
-                  <button onClick={() => photoRef.current?.click()} disabled={uploadingPhotos}
-                    className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-primary/40 transition-colors disabled:opacity-50">
-                    {uploadingPhotos ? <span className="text-xs">Enviando...</span> : <><Image size={18} /><span className="text-xs">Adicionar</span></>}
-                  </button>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => { setPendingDesc(null); setPendingPhotos([]); }}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-muted-foreground transition-all active:scale-95">
-                  Cancelar
-                </button>
-                <button onClick={saveAttendance} disabled={!pendingDesc?.trim()}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-40"
-                  style={{ background: "var(--primary)" }}>
-                  Salvar atendimento
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!timerActive && pendingDesc === null && order.status !== "cancelled" && (
-            <button onClick={startTimer}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95"
-              style={{ background: "var(--primary)", color: "white" }}>
-              <Play size={15} fill="white" /> Iniciar atendimento
-            </button>
-          )}
-
-          {order.attendances.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Histórico ({order.attendances.length})</p>
-              {order.attendances.map(att => (
-                <AttendanceCard key={att.id} att={att} onDeletePhoto={pid => deleteAttPhoto(att.id, pid)} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="bg-card border border-border rounded-2xl p-4 space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Financeiro</h3>
-          <div className="grid grid-cols-3 gap-2">
-            <FinCard label="Receita" value={order.clientValue} valueColor="var(--primary)" />
-            <FinCard label="Custos"  value={totalExp}          valueColor="#D97706" />
-            <FinCard label="Margem"  value={margem}            valueColor={margem >= 0 ? "#15803D" : "#B91C1C"} sub={`${margemPct}%`} />
-          </div>
-          {order.clientValue > 0 && (
-            <div>
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>Custo / Receita</span>
-                <span>{((totalExp / order.clientValue) * 100).toFixed(1)}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                <div className="h-full rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (totalExp / order.clientValue) * 100)}%`, background: totalExp > order.clientValue ? "#EF4444" : "var(--accent)" }} />
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor do cliente (R$)</label>
-            <input type="number" defaultValue={order.clientValue || ""} onBlur={e => updateClientValue(e.target.value)} placeholder="0,00"
-              className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Despesas</p>
-            {order.expenses.length === 0
-              ? <p className="text-xs text-muted-foreground italic py-1">Nenhuma despesa registrada.</p>
-              : (
-                <div className="space-y-2">
-                  {order.expenses.map(exp => (
-                    <div key={exp.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
-                      <span className="flex-1 text-sm text-foreground truncate">{exp.label}</span>
-                      <span className="text-sm font-semibold font-mono flex-shrink-0">{fmt(exp.amount)}</span>
-                      <button onClick={() => removeExpense(exp.id)} className="p-1 rounded-lg hover:bg-red-50 transition-colors">
-                        <Trash2 size={13} className="text-destructive" />
-                      </button>
-                    </div>
-                  ))}
-                  <div className="flex justify-between pt-1">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total</span>
-                    <span className="text-sm font-bold" style={{ color: "var(--primary)" }}>{fmt(totalExp)}</span>
-                  </div>
-                </div>
-              )}
-            <div className="border border-dashed border-border rounded-xl p-3 space-y-2 mt-3">
-              <div className="flex gap-2">
-                <input value={newExpLabel} onChange={e => setNewExpLabel(e.target.value)} placeholder="Descrição"
-                  className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                  onKeyDown={e => e.key === "Enter" && addExpense()} />
-                <input value={newExpAmt} onChange={e => setNewExpAmt(e.target.value)} placeholder="R$ 0,00" type="number"
-                  className="w-24 px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                  onKeyDown={e => e.key === "Enter" && addExpense()} />
-              </div>
-              <button onClick={addExpense}
-                className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95"
-                style={{ background: "var(--secondary)", color: "var(--primary)" }}>
-                <Plus size={13} /> Adicionar despesa
-              </button>
-            </div>
-          </div>
-        </div>
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-4"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Financeiro</h3><div className="grid grid-cols-3 gap-2"><FinCard label="Receita" value={order.clientValue} valueColor="var(--primary)" /><FinCard label="Custos" value={totalExp} valueColor="#D97706" /><FinCard label="Margem" value={margem} valueColor={margem >= 0 ? "#15803D" : "#B91C1C"} sub={`${margemPct}%`} /></div>{order.clientValue > 0 && <div><div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Custo / Receita</span><span>{((totalExp / order.clientValue) * 100).toFixed(1)}%</span></div><div className="h-2 rounded-full bg-secondary overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (totalExp / order.clientValue) * 100)}%`, background: totalExp > order.clientValue ? "#EF4444" : "var(--accent)" }} /></div></div>}<div><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor do cliente (R$)</label><input type="number" defaultValue={order.clientValue || ""} onBlur={e => updateClientValue(e.target.value)} placeholder="0,00" className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div><div><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Despesas</p>{order.expenses.length === 0 ? <p className="text-xs text-muted-foreground italic py-1">Nenhuma despesa registrada.</p> : <div className="space-y-2">{order.expenses.map(exp => <div key={exp.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0"><span className="flex-1 text-sm text-foreground truncate">{exp.label}</span><span className="text-sm font-semibold font-mono flex-shrink-0">{fmt(exp.amount)}</span><button onClick={() => removeExpense(exp.id)} className="p-1 rounded-lg hover:bg-red-50 transition-colors"><Trash2 size={13} className="text-destructive" /></button></div>)}<div className="flex justify-between pt-1"><span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total</span><span className="text-sm font-bold" style={{ color: "var(--primary)" }}>{fmt(totalExp)}</span></div></div>}<div className="border border-dashed border-border rounded-xl p-3 space-y-2 mt-3"><div className="flex gap-2"><input value={newExpLabel} onChange={e => setNewExpLabel(e.target.value)} placeholder="Descrição" className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" onKeyDown={e => e.key === "Enter" && addExpense()} /><input value={newExpAmt} onChange={e => setNewExpAmt(e.target.value)} placeholder="R$ 0,00" type="number" className="w-24 px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" onKeyDown={e => e.key === "Enter" && addExpense()} /></div><button onClick={addExpense} className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95" style={{ background: "var(--secondary)", color: "var(--primary)" }}><Plus size={13} /> Adicionar despesa</button></div></div></div>
 
         <PaymentsCard order={order} onUpdate={onUpdate} />
-
-        {order.status !== "completed" && order.status !== "cancelled" && (
-          <div className="bg-card border border-border rounded-2xl p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Alterar status</h3>
-            <div className="flex gap-2 flex-wrap">
-              {order.status === "pending" && <ActionBtn label="Iniciar" color="#1D4ED8" bg="#DBEAFE" onClick={() => onUpdate({ ...order, status: "in_progress" })} />}
-              {order.status === "in_progress" && <ActionBtn label="Concluir" color="#15803D" bg="#DCFCE7" onClick={() => onUpdate({ ...order, status: "completed" })} />}
-              <ActionBtn label="Cancelar" color="#B91C1C" bg="#FEE2E2" onClick={() => onUpdate({ ...order, status: "cancelled" })} />
-            </div>
-          </div>
-        )}
+        {order.status !== "completed" && order.status !== "cancelled" && <div className="bg-card border border-border rounded-2xl p-4"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Alterar status</h3><div className="flex gap-2 flex-wrap">{order.status === "pending" && <ActionBtn label="Iniciar" color="#1D4ED8" bg="#DBEAFE" onClick={() => onUpdate({ ...order, status: "in_progress" })} />}{order.status === "in_progress" && <ActionBtn label="Concluir" color="#15803D" bg="#DCFCE7" onClick={() => onUpdate({ ...order, status: "completed" })} />}<ActionBtn label="Cancelar" color="#B91C1C" bg="#FEE2E2" onClick={() => onUpdate({ ...order, status: "cancelled" })} /></div></div>}
       </div>
-
       <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={addPhoto} />
     </div>
   );
