@@ -5,6 +5,7 @@ import { requireAuth, requireAdmin } from '../auth.js';
 import { getDownloadUrl } from '../storage.js';
 
 const router = Router();
+const MIN_PASSWORD_LENGTH = 8;
 
 async function ensureAdminSchema() {
   await pool.query(`
@@ -66,7 +67,6 @@ router.get('/admin/access', async (req, res) => {
   }
 });
 
-// Administrative team management is always scoped to the administrator's account.
 router.get('/admin/team', requireAdmin, async (req, res) => {
   try {
     await ensureAdminSchema();
@@ -103,7 +103,7 @@ router.post('/admin/team', requireAdmin, async (req, res) => {
   const role = typeof req.body.role === 'string' && req.body.role.trim() ? req.body.role.trim() : 'Técnico';
 
   if (!name || !email || !password) return res.status(400).json({ error: 'Nome, e-mail e senha são obrigatórios' });
-  if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres' });
+  if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `A senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres` });
 
   try {
     await ensureAdminSchema();
