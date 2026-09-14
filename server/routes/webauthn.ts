@@ -140,7 +140,7 @@ router.post('/authenticate/verify', webAuthnRateLimit, async (req, res) => {
     await client.query('COMMIT');
 
     await createSession(user.id, res);
-    res.json({ token: 'cookie-session', user: { id: user.id, name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null, isAdmin: Boolean(user.is_admin) } });
+    res.json({ user: { id: user.id, name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null, isAdmin: Boolean(user.is_admin) } });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => undefined);
     sendWebAuthnError(res, error);
