@@ -13,9 +13,12 @@ router.get('/', requireAuth, async (req, res) => {
   let ordersThisMonth = 0;
   if (ctx.plan.limits.maxOrdersPerMonth !== null) {
     const { rows } = await pool.query(
-      `SELECT COUNT(*)::int as count FROM orders
-       WHERE user_id = $1 AND date_trunc('month', created_at) = date_trunc('month', NOW())`,
-      [userId]
+      `SELECT COUNT(*)::int as count
+       FROM orders o
+       INNER JOIN users u ON u.id = o.user_id
+       WHERE u.account_id = $1
+         AND date_trunc('month', o.created_at) = date_trunc('month', NOW())`,
+      [ctx.accountId]
     );
     ordersThisMonth = rows[0].count;
   }
