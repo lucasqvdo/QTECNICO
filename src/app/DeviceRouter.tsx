@@ -10,7 +10,6 @@ export default function DeviceRouter() {
 
   useEffect(() => {
     let mounted = true;
-
     const checkAuth = async () => {
       try {
         const user = await api.getMe();
@@ -20,9 +19,7 @@ export default function DeviceRouter() {
           await api.getAdminAccess();
           if (!mounted) return;
           setAdminAllowed(true);
-        } else {
-          setAdminAllowed(false);
-        }
+        } else setAdminAllowed(false);
       } catch {
         if (!mounted) return;
         setAuthenticated(false);
@@ -31,7 +28,6 @@ export default function DeviceRouter() {
         if (mounted) setCheckingAdmin(false);
       }
     };
-
     void checkAuth();
 
     const handleSessionExpired = () => {
@@ -42,11 +38,26 @@ export default function DeviceRouter() {
     };
     window.addEventListener("qtecnico-session-expired", handleSessionExpired);
 
+    // Transitional bridge: App still removes its legacy marker on logout.
+    // The marker is not an authentication credential; the server session is revoked here.
+    const authTimer = window.setInterval(() => {
+      const marker = localStorage.getItem("qtecnico_token");
+      if (authenticated && !marker) {
+        void api.logout().finally(() => {
+          if (!mounted) return;
+          setAuthenticated(false);
+          setAdminAllowed(false);
+          setCheckingAdmin(false);
+        });
+      }
+    }, 500);
+
     return () => {
       mounted = false;
+      window.clearInterval(authTimer);
       window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
     };
-  }, []);
+  }, [authenticated]);
 
   if (authenticated && !checkingAdmin && adminAllowed) return <AdminDashboard />;
   return <App />;
