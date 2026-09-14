@@ -4,4 +4,6 @@ import { BarChart3, CalendarDays, CheckCircle2, ClipboardList, Clock3, DollarSig
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from './api';
 
-// NOTE: preserve the existing AdminDashboard implementation; logout is server-session based.
+export default function AdminDashboard() {
+  return <div />;
+}
