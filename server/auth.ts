@@ -9,11 +9,15 @@ if (!process.env.JWT_SECRET) {
 }
 
 const SECRET: string = process.env.JWT_SECRET;
+const JWT_ALGORITHM = 'HS256' as const;
 
 // Short-lived bearer sessions reduce the impact of a stolen token.
 // The client must re-authenticate after 12 hours.
 export function signToken(payload: Record<string, unknown>) {
-  return jwt.sign(payload, SECRET, { expiresIn: '12h' });
+  return jwt.sign(payload, SECRET, {
+    expiresIn: '12h',
+    algorithm: JWT_ALGORITHM,
+  });
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -22,7 +26,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: 'Não autorizado' });
   }
   try {
-    const payload = jwt.verify(auth.slice(7), SECRET) as Record<string, unknown>;
+    const payload = jwt.verify(auth.slice(7), SECRET, {
+      algorithms: [JWT_ALGORITHM],
+    }) as Record<string, unknown>;
     if (typeof payload.id !== 'number') {
       return res.status(401).json({ error: 'Token inválido' });
     }
@@ -44,7 +50,9 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   }
 
   try {
-    const payload = jwt.verify(auth.slice(7), SECRET) as Record<string, unknown>;
+    const payload = jwt.verify(auth.slice(7), SECRET, {
+      algorithms: [JWT_ALGORITHM],
+    }) as Record<string, unknown>;
     if (typeof payload.id !== 'number') {
       return res.status(401).json({ error: 'Token inválido' });
     }
