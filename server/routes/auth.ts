@@ -10,6 +10,7 @@ import {
 } from '../security.js';
 
 const router = Router();
+const MIN_PASSWORD_LENGTH = 8;
 
 let resetTableReady: Promise<void> | null = null;
 
@@ -103,7 +104,7 @@ router.post('/register', authRateLimit, async (req, res) => {
   const { name, email, password } = req.body;
   const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   if (!name || !normalizedEmail || !password) return res.status(400).json({ error: 'Preencha todos os campos' });
-  if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres' });
+  if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `A senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres` });
 
   const client = await pool.connect();
   try {
@@ -195,7 +196,7 @@ router.post('/password-reset/confirm', passwordResetConfirmRateLimit, async (req
   const password = typeof req.body.password === 'string' ? req.body.password : '';
 
   if (!email || !/^\d{6}$/.test(code) || !password) return res.status(400).json({ error: 'Dados de recuperação inválidos' });
-  if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres' });
+  if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `A senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres` });
 
   try {
     await ensureResetTable();
