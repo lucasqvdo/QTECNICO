@@ -60,10 +60,10 @@ export default function SecureLoginScreen({
 
   const handleBiometric = async () => {
     clearFeedback();
-    if (!email.trim()) { setFormError('Informe seu e-mail para usar a biometria.'); return; }
+    if (!email.trim()) { setFormError('Informe seu e-mail para usar a Passkey.'); return; }
     setBiometricLoading(true);
     try { await onBiometricLogin(email.trim()); }
-    catch (e: any) { setFormError(e?.message || 'Não foi possível entrar com a biometria.'); }
+    catch (e: any) { setFormError(e?.message || 'Não foi possível entrar com a Passkey.'); }
     finally { setBiometricLoading(false); }
   };
 
@@ -221,7 +221,7 @@ export default function SecureLoginScreen({
       <Feedback />
       <button type="button" onClick={() => { const next = !remember; setRemember(next); if (!next) { localStorage.removeItem('qtecnico_remember'); localStorage.removeItem('qtecnico_email'); } }} className="flex items-center gap-2.5 text-xs text-slate-500"><span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: remember ? '#0891b2' : '#CBD5E1', background: remember ? '#0891b2' : 'transparent' }}>{remember && <span className="text-white text-[10px]">✓</span>}</span>Lembrar meu e-mail</button>
       <button onClick={handleLogin} className="w-full py-3.5 rounded-xl font-bold text-sm bg-slate-950 text-white hover:bg-slate-800 transition-colors">Entrar</button>
-      <button onClick={handleBiometric} disabled={biometricLoading} className="w-full py-3.5 rounded-xl font-bold text-sm border border-cyan-500 text-slate-800 hover:bg-cyan-50 flex items-center justify-center gap-2 disabled:opacity-60"><Fingerprint size={18} className="text-cyan-600" />{biometricLoading ? 'Validando...' : 'Entrar com biometria'}</button>
+      <button onClick={handleBiometric} disabled={biometricLoading} className="w-full py-3.5 rounded-xl font-bold text-sm border border-cyan-500 text-slate-800 hover:bg-cyan-50 flex items-center justify-center gap-2 disabled:opacity-60"><Fingerprint size={18} className="text-cyan-600" />{biometricLoading ? 'Validando...' : 'Entrar com Passkey'}</button>
       <div className="flex items-center justify-between pt-1"><button onClick={() => { clearFeedback(); setResetEmail(email); setMode('request'); }} className="text-xs font-semibold text-slate-500 hover:text-slate-900">Esqueci minha senha</button><button onClick={() => { clearFeedback(); setMode('register'); }} className="text-xs font-bold text-cyan-600 hover:text-cyan-700">Criar conta</button></div>
     </div>;
   }
