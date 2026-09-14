@@ -99,30 +99,12 @@ async function reconcileMultiTenantSchema() {
   await pool.query(`ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS account_id INTEGER`);
 
   // Backfill existing production data without changing any business values.
-  await pool.query(`
-    UPDATE clients c SET account_id = u.account_id
-    FROM users u WHERE c.user_id = u.id AND c.account_id IS NULL
-  `);
-  await pool.query(`
-    UPDATE orders o SET account_id = u.account_id
-    FROM users u WHERE o.user_id = u.id AND o.account_id IS NULL
-  `);
-  await pool.query(`
-    UPDATE expenses e SET account_id = o.account_id
-    FROM orders o WHERE e.order_id = o.id AND e.account_id IS NULL
-  `);
-  await pool.query(`
-    UPDATE attendances a SET account_id = o.account_id
-    FROM orders o WHERE a.order_id = o.id AND a.account_id IS NULL
-  `);
-  await pool.query(`
-    UPDATE order_payments p SET account_id = o.account_id
-    FROM orders o WHERE p.order_id = o.id AND p.account_id IS NULL
-  `);
-  await pool.query(`
-    UPDATE attendance_photos p SET account_id = a.account_id
-    FROM attendances a WHERE p.attendance_id = a.id AND p.account_id IS NULL
-  `);
+  await pool.query(`UPDATE clients c SET account_id = u.account_id FROM users u WHERE c.user_id = u.id AND c.account_id IS NULL`);
+  await pool.query(`UPDATE orders o SET account_id = u.account_id FROM users u WHERE o.user_id = u.id AND o.account_id IS NULL`);
+  await pool.query(`UPDATE expenses e SET account_id = o.account_id FROM orders o WHERE e.order_id = o.id AND e.account_id IS NULL`);
+  await pool.query(`UPDATE attendances a SET account_id = o.account_id FROM orders o WHERE a.order_id = o.id AND a.account_id IS NULL`);
+  await pool.query(`UPDATE order_payments p SET account_id = o.account_id FROM orders o WHERE p.order_id = o.id AND p.account_id IS NULL`);
+  await pool.query(`UPDATE attendance_photos p SET account_id = a.account_id FROM attendances a WHERE p.attendance_id = a.id AND p.account_id IS NULL`);
 
   const orphaned = await pool.query(`
     SELECT
@@ -138,7 +120,6 @@ async function reconcileMultiTenantSchema() {
     throw new Error(`Multiempresa: existem registros sem account_id: ${JSON.stringify(o)}`);
   }
 
-  // Tenant ownership must never be optional after the backfill.
   await pool.query(`ALTER TABLE clients ALTER COLUMN account_id SET NOT NULL`);
   await pool.query(`ALTER TABLE orders ALTER COLUMN account_id SET NOT NULL`);
   await pool.query(`ALTER TABLE expenses ALTER COLUMN account_id SET NOT NULL`);
@@ -146,12 +127,29 @@ async function reconcileMultiTenantSchema() {
   await pool.query(`ALTER TABLE attendance_photos ALTER COLUMN account_id SET NOT NULL`);
   await pool.query(`ALTER TABLE order_payments ALTER COLUMN account_id SET NOT NULL`);
 
-  await pool.query(`ALTER TABLE clients ADD CONSTRAINT clients_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE orders ADD CONSTRAINT orders_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE expenses ADD CONSTRAINT expenses_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE attendances ADD CONSTRAINT attendances_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE attendance_photos ADD CONSTRAINT attendance_photos_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE order_payments ADD CONSTRAINT order_payments_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE`);
+  // Constraints are created idempotently because this reconciliation runs on every boot.
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_account_fk') THEN
+        ALTER TABLE clients ADD CONSTRAINT clients_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_account_fk') THEN
+        ALTER TABLE orders ADD CONSTRAINT orders_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_account_fk') THEN
+        ALTER TABLE expenses ADD CONSTRAINT expenses_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendances_account_fk') THEN
+        ALTER TABLE attendances ADD CONSTRAINT attendances_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_photos_account_fk') THEN
+        ALTER TABLE attendance_photos ADD CONSTRAINT attendance_photos_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'order_payments_account_fk') THEN
+        ALTER TABLE order_payments ADD CONSTRAINT order_payments_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+      END IF;
+    END $$;
+  `);
 
   await pool.query(`CREATE INDEX IF NOT EXISTS clients_account_idx ON clients(account_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS orders_account_idx ON orders(account_id)`);
