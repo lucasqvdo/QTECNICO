@@ -7,10 +7,7 @@ import { getDownloadUrl } from '../storage.js';
 const router = Router();
 
 async function getAccessContext(userId: number) {
-  const { rows } = await pool.query(
-    `SELECT u.is_admin, u.account_id FROM users u WHERE u.id = $1`,
-    [userId]
-  );
+  const { rows } = await pool.query(`SELECT u.is_admin, u.account_id FROM users u WHERE u.id = $1`, [userId]);
   if (!rows[0]?.account_id) throw new Error('Conta não encontrada');
   return { accountId: rows[0].account_id as number, isAdmin: Boolean(rows[0].is_admin) };
 }
@@ -25,78 +22,28 @@ async function fetchOrders(userId: number) {
   );
   const orders = ordersRes.rows;
   if (orders.length === 0) return [];
-
   const orderIds = orders.map((o: any) => o.id);
   const [expRes, attRes, payRes] = await Promise.all([
     pool.query('SELECT * FROM expenses WHERE order_id = ANY($1)', [orderIds]),
     pool.query('SELECT * FROM attendances WHERE order_id = ANY($1) ORDER BY start_time ASC', [orderIds]),
     pool.query('SELECT * FROM order_payments WHERE order_id = ANY($1) ORDER BY date ASC', [orderIds]),
   ]);
-
   const attIds = attRes.rows.map((a: any) => a.id);
-  const photoRes = attIds.length > 0
-    ? await pool.query('SELECT * FROM attendance_photos WHERE attendance_id = ANY($1)', [attIds])
-    : { rows: [] };
-
+  const photoRes = attIds.length > 0 ? await pool.query('SELECT * FROM attendance_photos WHERE attendance_id = ANY($1)', [attIds]) : { rows: [] };
   const expensesByOrder: Record<string, any[]> = {};
-  for (const e of expRes.rows) {
-    if (!expensesByOrder[e.order_id]) expensesByOrder[e.order_id] = [];
-    expensesByOrder[e.order_id].push({ id: e.id, label: e.label, amount: parseFloat(e.amount) });
-  }
-
+  for (const e of expRes.rows) (expensesByOrder[e.order_id] ||= []).push({ id: e.id, label: e.label, amount: parseFloat(e.amount) });
   const paymentsByOrder: Record<string, any[]> = {};
-  for (const p of payRes.rows) {
-    if (!paymentsByOrder[p.order_id]) paymentsByOrder[p.order_id] = [];
-    paymentsByOrder[p.order_id].push({
-      id: p.id, orderId: p.order_id, label: p.label, amount: parseFloat(p.amount),
-      date: p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0], status: p.status,
-    });
-  }
-
+  for (const p of payRes.rows) (paymentsByOrder[p.order_id] ||= []).push({ id: p.id, orderId: p.order_id, label: p.label, amount: parseFloat(p.amount), date: p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0], status: p.status });
   const photosByAtt: Record<string, any[]> = {};
-  const photoEntries = await Promise.all(photoRes.rows.map(async (p: any) => ({
-    attendanceId: p.attendance_id,
-    photo: { id: p.id, key: p.data_url, dataUrl: await getDownloadUrl(p.data_url), name: p.name },
-  })));
-  for (const { attendanceId, photo } of photoEntries) {
-    if (!photosByAtt[attendanceId]) photosByAtt[attendanceId] = [];
-    photosByAtt[attendanceId].push(photo);
-  }
-
+  const photoEntries = await Promise.all(photoRes.rows.map(async (p: any) => ({ attendanceId: p.attendance_id, photo: { id: p.id, key: p.data_url, dataUrl: await getDownloadUrl(p.data_url), name: p.name } })));
+  for (const { attendanceId, photo } of photoEntries) (photosByAtt[attendanceId] ||= []).push(photo);
   const attsByOrder: Record<string, any[]> = {};
-  for (const a of attRes.rows) {
-    if (!attsByOrder[a.order_id]) attsByOrder[a.order_id] = [];
-    attsByOrder[a.order_id].push({
-      id: a.id,
-      startTime: a.start_time instanceof Date ? a.start_time.toISOString() : a.start_time,
-      endTime: a.end_time instanceof Date ? a.end_time.toISOString() : a.end_time,
-      durationSeconds: a.duration_seconds, description: a.description, photos: photosByAtt[a.id] || [],
-    });
-  }
-
-  return Promise.all(orders.map(async (o: any) => ({
-    id: o.id, clientId: o.client_id, client: o.client_name, address: o.address, phone: o.phone,
-    type: o.type, status: o.status,
-    date: o.date instanceof Date ? o.date.toISOString().split('T')[0] : String(o.date).split('T')[0],
-    priority: o.priority, description: o.description, clientValue: parseFloat(o.client_value),
-    paymentStatus: o.payment_status,
-    paidDate: o.paid_date ? (o.paid_date instanceof Date ? o.paid_date.toISOString().split('T')[0] : String(o.paid_date).split('T')[0]) : undefined,
-    paidAmount: o.paid_amount != null ? parseFloat(o.paid_amount) : undefined,
-    clientSignature: (await getDownloadUrl(o.client_signature)) ?? undefined,
-    clientSignatureKey: o.client_signature ?? undefined,
-    assignedTechnicianId: o.assigned_technician_id ?? undefined,
-    assignedTechnicianName: o.assigned_technician_name ?? undefined,
-    expenses: expensesByOrder[o.id] || [], attendances: attsByOrder[o.id] || [], payments: paymentsByOrder[o.id] || [],
-  })));
+  for (const a of attRes.rows) (attsByOrder[a.order_id] ||= []).push({ id: a.id, startTime: a.start_time instanceof Date ? a.start_time.toISOString() : a.start_time, endTime: a.end_time instanceof Date ? a.end_time.toISOString() : a.end_time, durationSeconds: a.duration_seconds, description: a.description, photos: photosByAtt[a.id] || [] });
+  return Promise.all(orders.map(async (o: any) => ({ id: o.id, clientId: o.client_id, client: o.client_name, address: o.address, phone: o.phone, type: o.type, status: o.status, date: o.date instanceof Date ? o.date.toISOString().split('T')[0] : String(o.date).split('T')[0], priority: o.priority, description: o.description, clientValue: parseFloat(o.client_value), paymentStatus: o.payment_status, paidDate: o.paid_date ? (o.paid_date instanceof Date ? o.paid_date.toISOString().split('T')[0] : String(o.paid_date).split('T')[0]) : undefined, paidAmount: o.paid_amount != null ? parseFloat(o.paid_amount) : undefined, clientSignature: (await getDownloadUrl(o.client_signature)) ?? undefined, clientSignatureKey: o.client_signature ?? undefined, assignedTechnicianId: o.assigned_technician_id ?? undefined, assignedTechnicianName: o.assigned_technician_name ?? undefined, expenses: expensesByOrder[o.id] || [], attendances: attsByOrder[o.id] || [], payments: paymentsByOrder[o.id] || [] })));
 }
 
 router.get('/', requireAuth, async (req, res) => {
-  try {
-    res.json(await fetchOrders(req.userId));
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Erro interno' });
-  }
+  try { res.json(await fetchOrders(req.userId)); } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
 });
 
 router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
@@ -106,7 +53,6 @@ router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
   const ym = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
   const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
   const id = o.id || `OS-${ym}-${rand}`;
-
   try {
     const { accountId } = await getAccessContext(userId);
     if (o.assignedTechnicianId != null) {
@@ -114,51 +60,30 @@ router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
       if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
       o.assignedTechnicianName = tech.rows[0].name;
     }
-
-    await pool.query(
-      `INSERT INTO orders (id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date, paid_amount, client_signature, assigned_technician_id, assigned_technician_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-      [id, userId, o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status || 'pending', o.date,
-       o.priority || 'medium', o.description || '', o.clientValue || 0, o.paymentStatus || 'pending', o.paidDate || null,
-       o.paidAmount ?? null, o.clientSignatureKey ?? null, o.assignedTechnicianId ?? null, o.assignedTechnicianName ?? null]
-    );
-
-    for (const e of (o.expenses || [])) {
-      await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
-    }
-
+    await pool.query(`INSERT INTO orders (id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date, paid_amount, client_signature, assigned_technician_id, assigned_technician_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, [id, userId, o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status || 'pending', o.date, o.priority || 'medium', o.description || '', o.clientValue || 0, o.paymentStatus || 'pending', o.paidDate || null, o.paidAmount ?? null, o.clientSignatureKey ?? null, o.assignedTechnicianId ?? null, o.assignedTechnicianName ?? null]);
+    for (const e of (o.expenses || [])) await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
     const orders = await fetchOrders(userId);
     res.status(201).json(orders.find((x: any) => x.id === id));
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Erro ao criar ordem' });
-  }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao criar ordem' }); }
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
   const userId = req.userId;
   const { id } = req.params;
   const o = req.body;
-
   try {
     const { accountId, isAdmin } = await getAccessContext(userId);
     const existingRes = await pool.query(
-      `SELECT o.* FROM orders o
-       JOIN users owner ON owner.id = o.user_id
-       WHERE o.id = $1 AND ${isAdmin ? 'owner.account_id = $2' : '(owner.account_id = $2 AND (o.user_id = $2 OR o.assigned_technician_id = $3))'}`,
+      `SELECT o.* FROM orders o JOIN users owner ON owner.id = o.user_id WHERE o.id = $1 AND ${isAdmin ? 'owner.account_id = $2' : '(owner.account_id = $2 AND (o.user_id = $3 OR o.assigned_technician_id = $3))'}`,
       isAdmin ? [id, accountId] : [id, accountId, userId]
     );
     const existing = existingRes.rows[0];
     if (!existing) return res.status(404).json({ error: 'Ordem não encontrada' });
-
-    // Assignment is controlled by administrators. Technicians can update
-    // technical/service data without moving an OS to another technician.
     if (isAdmin && o.assignedTechnicianId != null) {
       const tech = await pool.query('SELECT id, name FROM users WHERE id=$1 AND account_id=$2', [o.assignedTechnicianId, accountId]);
       if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
       o.assignedTechnicianName = tech.rows[0].name;
     }
-
     const clientValue = isAdmin ? o.clientValue : existing.client_value;
     const paymentStatus = isAdmin ? o.paymentStatus : existing.payment_status;
     const paidDate = isAdmin ? (o.paidDate || null) : existing.paid_date;
@@ -166,65 +91,35 @@ router.put('/:id', requireAuth, async (req, res) => {
     const clientSignature = o.clientSignatureKey ?? existing.client_signature;
     const assignedTechnicianId = isAdmin ? (o.assignedTechnicianId ?? null) : existing.assigned_technician_id;
     const assignedTechnicianName = isAdmin ? (o.assignedTechnicianName ?? null) : existing.assigned_technician_name;
-
-    await pool.query(
-      `UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6,
-       date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12,
-       paid_amount=$13, client_signature=$14, assigned_technician_id=$15, assigned_technician_name=$16
-       WHERE id=$17`,
-      [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status, o.date, o.priority,
-       o.description || '', clientValue, paymentStatus, paidDate, paidAmount,
-       clientSignature, assignedTechnicianId, assignedTechnicianName, id]
-    );
-
+    await pool.query(`UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6, date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12, paid_amount=$13, client_signature=$14, assigned_technician_id=$15, assigned_technician_name=$16 WHERE id=$17`, [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status, o.date, o.priority, o.description || '', clientValue, paymentStatus, paidDate, paidAmount, clientSignature, assignedTechnicianId, assignedTechnicianName, id]);
     const ctx = await getAccountContext(userId);
     if (ctx) assertPhotoLimit(ctx.plan, o.attendances || []);
-
-    // Financial records are administrator-controlled. A technician update must
-    // never be able to delete or replace payments/expenses by omission.
     if (isAdmin) {
       await pool.query('DELETE FROM expenses WHERE order_id = $1', [id]);
-      for (const e of (o.expenses || [])) {
-        await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
-      }
-
+      for (const e of (o.expenses || [])) await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
       await pool.query('DELETE FROM order_payments WHERE order_id = $1', [id]);
-      for (const p of (o.payments || [])) {
-        await pool.query('INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)', [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
-      }
+      for (const p of (o.payments || [])) await pool.query('INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)', [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
     }
-
     await pool.query('DELETE FROM attendances WHERE order_id = $1', [id]);
     for (const a of (o.attendances || [])) {
       await pool.query(`INSERT INTO attendances (id, order_id, start_time, end_time, duration_seconds, description) VALUES ($1,$2,$3,$4,$5,$6)`, [a.id || `${Date.now()}-${Math.random()}`, id, a.startTime, a.endTime, a.durationSeconds, a.description || '']);
-      for (const p of (a.photos || [])) {
-        if (!p.key) continue;
-        await pool.query('INSERT INTO attendance_photos (id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4)', [p.id || `${Date.now()}-${Math.random()}`, a.id, p.key, p.name || '']);
-      }
+      for (const p of (a.photos || [])) if (p.key) await pool.query('INSERT INTO attendance_photos (id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4)', [p.id || `${Date.now()}-${Math.random()}`, a.id, p.key, p.name || '']);
     }
-
     const orders = await fetchOrders(userId);
     res.json(orders.find((x: any) => x.id === id));
   } catch (e: any) {
     if (e?.code === 'PLAN_LIMIT_PHOTOS') return res.status(e.status || 402).json({ error: e.message, code: e.code });
-    console.error(e);
-    res.status(500).json({ error: 'Erro ao atualizar ordem' });
+    console.error(e); res.status(500).json({ error: 'Erro ao atualizar ordem' });
   }
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { accountId, isAdmin } = await getAccessContext(req.userId);
-    const result = await pool.query(
-      `DELETE FROM orders WHERE id = $1 AND ${isAdmin ? 'user_id IN (SELECT id FROM users WHERE account_id=$2)' : 'user_id=$2'}`,
-      [req.params.id, isAdmin ? accountId : req.userId]
-    );
+    const result = await pool.query(`DELETE FROM orders WHERE id = $1 AND ${isAdmin ? 'user_id IN (SELECT id FROM users WHERE account_id=$2)' : 'user_id=$2'}`, [req.params.id, isAdmin ? accountId : req.userId]);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Ordem não encontrada' });
     res.json({ success: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Erro ao deletar ordem' });
-  }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao deletar ordem' }); }
 });
 
 export default router;
