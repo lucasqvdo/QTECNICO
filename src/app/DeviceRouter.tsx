@@ -42,42 +42,11 @@ export default function DeviceRouter() {
     };
     window.addEventListener("qtecnico-session-expired", handleSessionExpired);
 
-    const handleBeforeUnload = () => {
-      // AdminDashboard's legacy logout removes this compatibility marker and
-      // immediately reloads. sendBeacon guarantees the server receives the
-      // revocation before the page is discarded, without exposing the session
-      // cookie to JavaScript.
-      if (!localStorage.getItem("qtecnico_token")) {
-        navigator.sendBeacon("/api/auth/logout", new Blob(["{}"], { type: "application/json" }));
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    // App.tsx still writes a compatibility marker in localStorage. It is not
-    // an authentication credential; it only lets this router detect legacy
-    // logout and revoke the real HttpOnly session.
-    const authTimer = window.setInterval(() => {
-      const marker = localStorage.getItem("qtecnico_token");
-      if (authenticated && !marker) {
-        void api.logout().finally(() => {
-          if (!mounted) return;
-          setAuthenticated(false);
-          setAdminAllowed(false);
-          setCheckingAdmin(false);
-        });
-      } else if (!authenticated && marker) {
-        setCheckingAdmin(true);
-        void checkAuth();
-      }
-    }, 500);
-
     return () => {
       mounted = false;
-      window.clearInterval(authTimer);
       window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
-      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [authenticated]);
+  }, []);
 
   if (authenticated && !checkingAdmin && adminAllowed) return <AdminDashboard />;
   return <App />;
