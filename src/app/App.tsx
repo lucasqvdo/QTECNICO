@@ -227,17 +227,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem("qtecnico_token");
-    if (token) {
-      loadData()
-        .then(() => { setScreen("orders"); setActiveTab("orders"); })
-        .catch(() => localStorage.removeItem("qtecnico_token"));
-    }
+    loadData()
+      .then(() => { setScreen("orders"); setActiveTab("orders"); })
+      .catch(() => {
+        setOrders([]);
+        setClients([]);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const afterAuth = async (token: string, user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null }) => {
-    localStorage.setItem("qtecnico_token", token);
+  const afterAuth = async (user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null }) => {
     applyUser(user);
     const [fetchedOrders, fetchedClients] = await Promise.all([api.getOrders(), api.getClients()]);
     setOrders(fetchedOrders);
@@ -247,16 +246,16 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      const { token, user } = await api.login(loginEmail, loginPassword);
-      await afterAuth(token, user);
+      const { user } = await api.login(loginEmail, loginPassword);
+      await afterAuth(user);
     } catch {
       setLoginError(true);
     }
   };
 
   const handleRegister = async (name: string, email: string, password: string) => {
-    const { token, user } = await api.register(name, email, password);
-    await afterAuth(token, user);
+    const { user } = await api.register(name, email, password);
+    await afterAuth(user);
   };
 
 
@@ -272,7 +271,7 @@ export default function App() {
     const options = await api.webauthnAuthenticationOptions(email);
     const response = await startAuthentication({ optionsJSON: options });
     const result = await api.webauthnAuthenticationVerify(response);
-    await afterAuth(result.token, result.user);
+    await afterAuth(result.user);
   };
 
   const handleUpdateOrder = async (updated: ServiceOrder) => {
@@ -317,10 +316,13 @@ export default function App() {
     setEditingProfile(false);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("qtecnico_token");
-    setOrders([]); setClients([]);
-    setScreen("login");
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } finally {
+      setOrders([]); setClients([]);
+      setScreen("login");
+    }
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
