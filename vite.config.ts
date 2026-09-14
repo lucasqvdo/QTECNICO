@@ -36,14 +36,6 @@ export default defineConfig({
         type: 'module',
       },
 
-      // Arquivos que o Workbox deve pré-cachear (shell do app)
-      includeAssets: [
-        'favicon-16x16.png',
-        'favicon-32x32.png',
-        'icons/apple-touch-icon.png',
-        'icons/*.png',
-      ],
-
       // Web App Manifest — define como o app aparece instalado
       manifest: {
         name: 'QTecnico — Gestão de OS',
@@ -51,23 +43,21 @@ export default defineConfig({
         description: 'Gestão de Ordens de Serviço para técnicos',
         theme_color: '#1A2B4E',
         background_color: '#1A2B4E',
-        display: 'standalone',          // tela cheia, sem barra do browser
+        display: 'standalone',
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
         lang: 'pt-BR',
         categories: ['business', 'productivity'],
         icons: [
-          { src: '/icons/icon-72x72.png',   sizes: '72x72',   type: 'image/png' },
-          { src: '/icons/icon-96x96.png',   sizes: '96x96',   type: 'image/png' },
+          { src: '/icons/icon-72x72.png', sizes: '72x72', type: 'image/png' },
+          { src: '/icons/icon-96x96.png', sizes: '96x96', type: 'image/png' },
           { src: '/icons/icon-128x128.png', sizes: '128x128', type: 'image/png' },
           { src: '/icons/icon-144x144.png', sizes: '144x144', type: 'image/png' },
           { src: '/icons/icon-152x152.png', sizes: '152x152', type: 'image/png' },
           { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-384x384.png', sizes: '384x384', type: 'image/png' },
           { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
-          // Maskable: tem padding para o sistema recortar o ícone em diferentes formatos
-          // (círculo no Android, quadrado arredondado etc.)
           {
             src: '/icons/icon-maskable-512x512.png',
             sizes: '512x512',
@@ -77,9 +67,13 @@ export default defineConfig({
         ],
       },
 
-      // Estratégia Workbox: cache-first para assets estáticos,
-      // network-first para chamadas de API (nunca cacheia dados da API)
+      // Estratégia Workbox: garantir que uma nova versão do shell assuma
+      // imediatamente o controle e limpe caches de versões anteriores.
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+
         // Pré-cacheia o shell do app (JS/CSS/HTML gerados pelo Vite)
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 
@@ -99,7 +93,6 @@ export default defineConfig({
           },
           {
             // Imagens do storage (Backblaze B2) — cache por 1 hora
-            // (coincide com o TTL das presigned URLs)
             urlPattern: /^https:\/\/.*backblazeb2\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
@@ -114,7 +107,6 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
   },
@@ -129,6 +121,5 @@ export default defineConfig({
     },
   },
 
-  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
