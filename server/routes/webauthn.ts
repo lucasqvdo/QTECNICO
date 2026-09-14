@@ -7,7 +7,7 @@ import {
 } from '@simplewebauthn/server';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { pool } from '../db.js';
-import { requireAuth, signToken } from '../auth.js';
+import { createSession, requireAuth } from '../auth.js';
 import { assertWebAuthnTransport, getWebAuthnConfig } from '../webauthn.js';
 import { webAuthnRateLimit } from '../security.js';
 
@@ -21,19 +21,7 @@ function getUserId(req: any) {
 
 async function saveChallenge(userId: number, type: 'registration' | 'authentication', challenge: string) {
   await pool.query('DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = $2', [userId, type]);
-  await pool.query(
-    `INSERT INTO webauthn_challenges (user_id, type, challenge, expires_at)
-     VALUES ($1, $2, $3, NOW() + INTERVAL '5 minutes')`,
-    [userId, type, challenge],
-  );
-}
-
-async function consumeChallenge(userId: number, type: 'registration' | 'authentication', challenge: string) {
-  const result = await pool.query(
-    `DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = $2 AND challenge = $3 AND expires_at > NOW()`,
-    [userId, type, challenge],
-  );
-  return result.rowCount > 0;
+  await pool.query(`INSERT INTO webauthn_challenges (user_id, type, challenge, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '5 minutes')`, [userId, type, challenge]);
 }
 
 function sendWebAuthnError(res: any, error: unknown) {
@@ -79,10 +67,7 @@ router.post('/register/verify', webAuthnRateLimit, requireAuth, async (req, res)
 
     client = await pool.connect();
     await client.query('BEGIN');
-    const consumed = await client.query(
-      `DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'registration' AND challenge = $2 AND expires_at > NOW()`,
-      [userId, challenge],
-    );
+    const consumed = await client.query(`DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'registration' AND challenge = $2 AND expires_at > NOW()`, [userId, challenge]);
     if (consumed.rowCount !== 1) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
@@ -98,9 +83,7 @@ router.post('/register/verify', webAuthnRateLimit, requireAuth, async (req, res)
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => undefined);
     sendWebAuthnError(res, error);
-  } finally {
-    client?.release();
-  }
+  } finally { client?.release(); }
 });
 
 router.post('/authenticate/options', webAuthnRateLimit, async (req, res) => {
@@ -126,10 +109,10 @@ router.post('/authenticate/verify', webAuthnRateLimit, async (req, res) => {
     assertWebAuthnTransport(req);
     const response = req.body as AuthenticationResponseJSON;
     if (!response?.id || !response.response?.clientDataJSON || !response.response.authenticatorData || !response.response.signature) return res.status(400).json({ error: 'Resposta WebAuthn incompleta' });
-    const credentialResult = await pool.query(`SELECT id, user_id, public_key, counter, transports FROM webauthn_credentials WHERE id = $1`, [response.id]);
+    const credentialResult = await pool.query('SELECT id, user_id, public_key, counter, transports FROM webauthn_credentials WHERE id = $1', [response.id]);
     const credentialRow = credentialResult.rows[0];
     if (!credentialRow) return res.status(401).json({ error: 'Biometria não cadastrada' });
-    const userResult = await pool.query('SELECT id, email, name, role, phone, photo_url FROM users WHERE id = $1', [credentialRow.user_id]);
+    const userResult = await pool.query('SELECT id, email, name, role, phone, photo_url, is_admin FROM users WHERE id = $1', [credentialRow.user_id]);
     const user = userResult.rows[0];
     if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
     const challengeResult = await pool.query(`SELECT challenge FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND expires_at > NOW() ORDER BY expires_at DESC LIMIT 1`, [credentialRow.user_id]);
@@ -144,32 +127,24 @@ router.post('/authenticate/verify', webAuthnRateLimit, async (req, res) => {
 
     client = await pool.connect();
     await client.query('BEGIN');
-    const counterUpdate = await client.query(
-      'UPDATE webauthn_credentials SET counter = $1 WHERE id = $2 AND counter = $3',
-      [verification.authenticationInfo.newCounter, credentialRow.id, credentialRow.counter],
-    );
+    const counterUpdate = await client.query('UPDATE webauthn_credentials SET counter = $1 WHERE id = $2 AND counter = $3', [verification.authenticationInfo.newCounter, credentialRow.id, credentialRow.counter]);
     if (counterUpdate.rowCount !== 1) {
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'Credencial biométrica desatualizada. Tente novamente.' });
     }
-    const consumed = await client.query(
-      `DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND challenge = $2 AND expires_at > NOW()`,
-      [credentialRow.user_id, challenge],
-    );
+    const consumed = await client.query(`DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND challenge = $2 AND expires_at > NOW()`, [credentialRow.user_id, challenge]);
     if (consumed.rowCount !== 1) {
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
     }
     await client.query('COMMIT');
 
-    const token = signToken({ id: user.id, email: user.email });
-    res.json({ token, user: { id: user.id, name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null } });
+    await createSession(user.id, res);
+    res.json({ token: 'cookie-session', user: { id: user.id, name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null, isAdmin: Boolean(user.is_admin) } });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => undefined);
     sendWebAuthnError(res, error);
-  } finally {
-    client?.release();
-  }
+  } finally { client?.release(); }
 });
 
 export default router;
