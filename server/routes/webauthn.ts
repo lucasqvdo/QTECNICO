@@ -63,6 +63,7 @@ router.post('/register/options', webAuthnRateLimit, requireAuth, async (req, res
 });
 
 router.post('/register/verify', webAuthnRateLimit, requireAuth, async (req, res) => {
+  let client;
   try {
     assertWebAuthnTransport(req);
     const userId = getUserId(req);
@@ -75,15 +76,31 @@ router.post('/register/verify', webAuthnRateLimit, requireAuth, async (req, res)
     const verification = await verifyRegistrationResponse({ response, expectedChallenge: challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, requireUserVerification: true });
     if (!verification.verified || !verification.registrationInfo) return res.status(400).json({ error: 'Não foi possível validar a biometria' });
     const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
-    await pool.query(
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const consumed = await client.query(
+      `DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'registration' AND challenge = $2 AND expires_at > NOW()`,
+      [userId, challenge],
+    );
+    if (consumed.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
+    }
+    await client.query(
       `INSERT INTO webauthn_credentials (id, user_id, public_key, counter, transports, device_type, backed_up)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE SET public_key = EXCLUDED.public_key, counter = EXCLUDED.counter, transports = EXCLUDED.transports, device_type = EXCLUDED.device_type, backed_up = EXCLUDED.backed_up`,
       [credential.id, userId, Buffer.from(credential.publicKey), credential.counter, response.response.transports || [], credentialDeviceType, credentialBackedUp],
     );
-    if (!(await consumeChallenge(userId, 'registration', challenge))) return res.status(400).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
+    await client.query('COMMIT');
     res.json({ success: true });
-  } catch (error) { sendWebAuthnError(res, error); }
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => undefined);
+    sendWebAuthnError(res, error);
+  } finally {
+    client?.release();
+  }
 });
 
 router.post('/authenticate/options', webAuthnRateLimit, async (req, res) => {
@@ -104,6 +121,7 @@ router.post('/authenticate/options', webAuthnRateLimit, async (req, res) => {
 });
 
 router.post('/authenticate/verify', webAuthnRateLimit, async (req, res) => {
+  let client;
   try {
     assertWebAuthnTransport(req);
     const response = req.body as AuthenticationResponseJSON;
@@ -124,16 +142,34 @@ router.post('/authenticate/verify', webAuthnRateLimit, async (req, res) => {
     });
     if (!verification.verified) return res.status(401).json({ error: 'Não foi possível validar a biometria' });
 
-    const counterUpdate = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const counterUpdate = await client.query(
       'UPDATE webauthn_credentials SET counter = $1 WHERE id = $2 AND counter = $3',
       [verification.authenticationInfo.newCounter, credentialRow.id, credentialRow.counter],
     );
-    if (counterUpdate.rowCount !== 1) return res.status(401).json({ error: 'Credencial biométrica desatualizada. Tente novamente.' });
-    if (!(await consumeChallenge(credentialRow.user_id, 'authentication', challenge))) return res.status(401).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
+    if (counterUpdate.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'Credencial biométrica desatualizada. Tente novamente.' });
+    }
+    const consumed = await client.query(
+      `DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND challenge = $2 AND expires_at > NOW()`,
+      [credentialRow.user_id, challenge],
+    );
+    if (consumed.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
+    }
+    await client.query('COMMIT');
 
     const token = signToken({ id: user.id, email: user.email });
     res.json({ token, user: { id: user.id, name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null } });
-  } catch (error) { sendWebAuthnError(res, error); }
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => undefined);
+    sendWebAuthnError(res, error);
+  } finally {
+    client?.release();
+  }
 });
 
 export default router;
