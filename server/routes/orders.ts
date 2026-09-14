@@ -20,8 +20,8 @@ async function fetchOrders(userId: number) {
   const ordersRes = await pool.query(
     isAdmin
       ? `SELECT o.* FROM orders o JOIN users owner ON owner.id = o.user_id WHERE owner.account_id = $1 ORDER BY o.created_at DESC`
-      : `SELECT o.* FROM orders o WHERE o.user_id = $1 OR o.assigned_technician_id = $1 ORDER BY o.created_at DESC`,
-    [isAdmin ? accountId : userId]
+      : `SELECT o.* FROM orders o JOIN users owner ON owner.id = o.user_id WHERE owner.account_id = $2 AND (o.user_id = $1 OR o.assigned_technician_id = $1) ORDER BY o.created_at DESC`,
+    isAdmin ? [accountId] : [userId, accountId]
   );
   const orders = ordersRes.rows;
   if (orders.length === 0) return [];
@@ -145,8 +145,8 @@ router.put('/:id', requireAuth, async (req, res) => {
     const existingRes = await pool.query(
       `SELECT o.* FROM orders o
        JOIN users owner ON owner.id = o.user_id
-       WHERE o.id = $1 AND ${isAdmin ? 'owner.account_id = $2' : '(o.user_id = $2 OR o.assigned_technician_id = $2)'}`,
-      [id, isAdmin ? accountId : userId]
+       WHERE o.id = $1 AND ${isAdmin ? 'owner.account_id = $2' : '(owner.account_id = $2 AND (o.user_id = $2 OR o.assigned_technician_id = $3))'}`,
+      isAdmin ? [id, accountId] : [id, accountId, userId]
     );
     const existing = existingRes.rows[0];
     if (!existing) return res.status(404).json({ error: 'Ordem não encontrada' });
