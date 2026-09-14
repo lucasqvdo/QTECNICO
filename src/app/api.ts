@@ -34,6 +34,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+async function uploadFile<T>(file: File, folder: 'attendances' | 'signatures' | 'profiles' = 'attendances'): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('folder', folder);
+  const headers: Record<string, string> = {};
+  const csrf = getCsrfToken();
+  if (csrf) headers['X-CSRF-Token'] = csrf;
+  const res = await fetch(`${BASE}/uploads`, { method: 'POST', body: form, credentials: 'include', headers });
+  if (res.status === 401) window.dispatchEvent(new CustomEvent('qtecnico-session-expired'));
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || 'Erro ao enviar imagem');
+  return body as T;
+}
+
 function notifyAuthenticated() {
   window.dispatchEvent(new CustomEvent('qtecnico-authenticated'));
 }
@@ -82,6 +96,9 @@ export const api = {
   updateProfile: (data: Omit<UserProfile, 'id'>) => request<UserProfile>('/users/me', { method: 'PUT', body: JSON.stringify(data) }),
   getCompanyProfile: () => request<CompanyProfileData | null>('/users/admin/company-profile'),
   updateCompanyProfile: (data: CompanyProfileData) => request<CompanyProfileData>('/users/admin/company-profile', { method: 'PUT', body: JSON.stringify(data) }),
+  uploadPhoto: (file: File, folder: 'attendances' | 'signatures' | 'profiles' = 'attendances') => uploadFile<{ key: string; url: string }>(file, folder),
+  addAttendancePhoto: (orderId: string, attendanceId: string, file: File) => uploadFile<{ key: string; url: string }>(file, 'attendances').then(({ key, url }) => request<{ photo: { id: string; key: string; dataUrl: string; name: string } }>(`/orders/${encodeURIComponent(orderId)}/attendances/${encodeURIComponent(attendanceId)}/photos`, { method: 'POST', body: JSON.stringify({ key, url, name: file.name }) })),
+  deleteAttendancePhoto: (orderId: string, attendanceId: string, photoId: string) => request<{ success: boolean }>(`/orders/${encodeURIComponent(orderId)}/attendances/${encodeURIComponent(attendanceId)}/photos/${encodeURIComponent(photoId)}`, { method: 'DELETE' }),
   getOrders: () => request<ServiceOrder[]>('/orders'),
   createOrder: (order: ServiceOrder) => request<ServiceOrder>('/orders', { method: 'POST', body: JSON.stringify(order) }),
   updateOrder: (id: string, order: Partial<ServiceOrder>) => request<ServiceOrder>(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(order) }),
