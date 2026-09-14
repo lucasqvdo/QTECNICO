@@ -7,20 +7,6 @@ import { getDownloadUrl } from '../storage.js';
 const router = Router();
 const MIN_PASSWORD_LENGTH = 8;
 
-async function ensureAdminSchema() {
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE
-  `);
-
-  await pool.query(`
-    UPDATE users
-    SET is_admin = TRUE
-    WHERE id = (SELECT id FROM users ORDER BY id ASC LIMIT 1)
-      AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
-  `);
-}
-
 async function getAdminAccountId(userId: number) {
   const result = await pool.query(
     `SELECT account_id FROM users WHERE id = $1 AND is_admin = TRUE`,
@@ -32,7 +18,6 @@ async function getAdminAccountId(userId: number) {
 router.get('/me', requireAuth, async (req, res) => {
   const userId = req.userId;
   try {
-    await ensureAdminSchema();
     const result = await pool.query(
       'SELECT id, name, role, phone, email, photo_url, is_admin FROM users WHERE id = $1',
       [userId]
@@ -55,21 +40,12 @@ router.get('/me', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/admin/access', async (req, res) => {
-  try {
-    await ensureAdminSchema();
-    return requireAdmin(req, res, () => {
-      res.json({ allowed: true });
-    });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: 'Erro ao validar acesso administrativo' });
-  }
+router.get('/admin/access', requireAdmin, async (_req, res) => {
+  res.json({ allowed: true });
 });
 
 router.get('/admin/team', requireAdmin, async (req, res) => {
   try {
-    await ensureAdminSchema();
     const accountId = await getAdminAccountId(req.userId);
     if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
 
@@ -106,7 +82,6 @@ router.post('/admin/team', requireAdmin, async (req, res) => {
   if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `A senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres` });
 
   try {
-    await ensureAdminSchema();
     const accountId = await getAdminAccountId(req.userId);
     if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
 
@@ -143,7 +118,6 @@ router.delete('/admin/team/:id', requireAdmin, async (req, res) => {
   if (id === requesterId) return res.status(400).json({ error: 'A conta administrativa atual não pode ser removida por ela mesma' });
 
   try {
-    await ensureAdminSchema();
     const accountId = await getAdminAccountId(requesterId);
     if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
 
