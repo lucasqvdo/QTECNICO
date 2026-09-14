@@ -18,32 +18,24 @@ export async function getAccountContext(userId: number): Promise<AccountContext 
   if (rows.length === 0) return null;
 
   const row = rows[0];
-  // Assinatura inadimplente/cancelada cai automaticamente pro plano Grátis,
-  // mesmo que plan_key ainda esteja marcado como um plano pago no banco.
   const effectivePlanKey = row.subscription_status === 'active' ? row.plan_key : 'free';
   return { accountId: row.account_id, plan: getPlan(effectivePlanKey) };
 }
 
-/**
- * Middleware: bloqueia criação de novas ordens quando a account já atingiu o
- * limite mensal do plano. O limite é compartilhado por todos os usuários da empresa.
- */
+/** Limite mensal compartilhado por todos os usuários da mesma empresa. */
 export function enforceOrderLimit() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.userId as number;
     const ctx = await getAccountContext(userId);
-    if (!ctx) {
-      return res.status(403).json({ error: 'Conta sem plano associado. Contate o suporte.' });
-    }
+    if (!ctx) return res.status(403).json({ error: 'Conta sem plano associado. Contate o suporte.' });
     res.locals.account = ctx;
 
     const limit = ctx.plan.limits.maxOrdersPerMonth;
-    if (limit === null) return next(); // ilimitado
+    if (limit === null) return next();
 
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int as count FROM orders o
-       JOIN users u ON u.id = o.user_id
-       WHERE u.account_id = $1
+       WHERE o.account_id = $1
          AND date_trunc('month', o.created_at) = date_trunc('month', NOW())`,
       [ctx.accountId]
     );
@@ -61,17 +53,12 @@ export function enforceOrderLimit() {
   };
 }
 
-/**
- * Middleware de checagem de feature (ex: relatórios financeiros, PDF, API).
- * Usar em rotas que só devem existir para planos pagos: `requireFeature('pdfExport')`.
- */
+/** Middleware de checagem de feature (ex: relatórios financeiros, PDF, API). */
 export function requireFeature(feature: keyof PlanFeatures) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.userId as number;
     const ctx = await getAccountContext(userId);
-    if (!ctx) {
-      return res.status(403).json({ error: 'Conta sem plano associado. Contate o suporte.' });
-    }
+    if (!ctx) return res.status(403).json({ error: 'Conta sem plano associado. Contate o suporte.' });
     res.locals.account = ctx;
 
     if (!ctx.plan.features[feature]) {
@@ -86,14 +73,9 @@ export function requireFeature(feature: keyof PlanFeatures) {
   };
 }
 
-/**
- * Valida o número de fotos de um array de attendances contra o limite do plano.
- * Chamar dentro da rota (não como middleware de rota), já que hoje as fotos
- * chegam embutidas no payload de PUT /orders/:id, e não em um endpoint próprio.
- */
 export function assertPhotoLimit(plan: Plan, attendances: { photos?: unknown[] }[]) {
   const limit = plan.limits.maxPhotosPerAttendance;
-  if (limit === null) return; // ilimitado
+  if (limit === null) return;
   for (const a of attendances) {
     if ((a.photos?.length || 0) > limit) {
       const err: any = new Error(`Limite do plano ${plan.name} é de ${limit} fotos por atendimento.`);
