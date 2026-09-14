@@ -38,15 +38,24 @@ export default function DeviceRouter() {
 
     void checkAuth();
 
+    const handleAuthenticated = () => {
+      if (!mounted) return;
+      setAuthState("checking");
+      void checkAuth();
+    };
+
     const handleSessionExpired = () => {
       if (!mounted) return;
       setAdminAllowed(false);
       setAuthState("unauthenticated");
     };
+
+    window.addEventListener("qtecnico-authenticated", handleAuthenticated);
     window.addEventListener("qtecnico-session-expired", handleSessionExpired);
 
     return () => {
       mounted = false;
+      window.removeEventListener("qtecnico-authenticated", handleAuthenticated);
       window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
     };
   }, []);
