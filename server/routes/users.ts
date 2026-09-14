@@ -76,6 +76,10 @@ router.put('/admin/company-profile', requireAdmin, async (req, res) => {
   try {
     const accountId = await getAdminAccountId(req.userId);
     if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
+    const existing = await pool.query('SELECT id FROM company_profiles WHERE account_id = $1', [accountId]);
+    if (existing.rows[0]) {
+      return res.status(403).json({ error: 'Os dados cadastrais da empresa são protegidos. Solicite alterações ao suporte do QTECNICO.' });
+    }
 
     const data = {
       legalName: normalize(req.body?.legalName), tradeName: normalize(req.body?.tradeName), document: normalize(req.body?.document),
