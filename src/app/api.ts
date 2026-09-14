@@ -54,7 +54,7 @@ export interface TeamMember {
 export const api = {
   login: (email: string, password: string) => request<{ token: string; user: UserProfile }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   register: (name: string, email: string, password: string) => request<{ token: string; user: UserProfile }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
-  requestPasswordReset: (email: string) => request<{ exists: boolean; resetToken: string }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }),
+  requestPasswordReset: (email: string) => request<{ exists: boolean; delivery: 'unavailable' }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }),
   resetPassword: (resetToken: string, password: string) => request<{ success: boolean }>('/auth/password-reset/confirm', { method: 'POST', body: JSON.stringify({ resetToken, password }) }),
   webauthnRegisterOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('/auth/webauthn/register/options', { method: 'POST' }),
   webauthnRegisterVerify: (response: RegistrationResponseJSON) => request<{ success: boolean }>('/auth/webauthn/register/verify', { method: 'POST', body: JSON.stringify(response) }),
