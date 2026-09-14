@@ -142,36 +142,56 @@ router.put('/:id', requireAuth, async (req, res) => {
 
   try {
     const { accountId, isAdmin } = await getAccessContext(userId);
-    if (o.assignedTechnicianId != null) {
+    const existingRes = await pool.query(
+      `SELECT o.* FROM orders o
+       JOIN users owner ON owner.id = o.user_id
+       WHERE o.id = $1 AND ${isAdmin ? 'owner.account_id = $2' : '(o.user_id = $2 OR o.assigned_technician_id = $2)'}`,
+      [id, isAdmin ? accountId : userId]
+    );
+    const existing = existingRes.rows[0];
+    if (!existing) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+    // Assignment is controlled by administrators. Technicians can update
+    // technical/service data without moving an OS to another technician.
+    if (isAdmin && o.assignedTechnicianId != null) {
       const tech = await pool.query('SELECT id, name FROM users WHERE id=$1 AND account_id=$2', [o.assignedTechnicianId, accountId]);
       if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
       o.assignedTechnicianName = tech.rows[0].name;
     }
 
-    const updateResult = await pool.query(
+    const clientValue = isAdmin ? o.clientValue : existing.client_value;
+    const paymentStatus = isAdmin ? o.paymentStatus : existing.payment_status;
+    const paidDate = isAdmin ? (o.paidDate || null) : existing.paid_date;
+    const paidAmount = isAdmin ? (o.paidAmount ?? null) : existing.paid_amount;
+    const clientSignature = o.clientSignatureKey ?? existing.client_signature;
+    const assignedTechnicianId = isAdmin ? (o.assignedTechnicianId ?? null) : existing.assigned_technician_id;
+    const assignedTechnicianName = isAdmin ? (o.assignedTechnicianName ?? null) : existing.assigned_technician_name;
+
+    await pool.query(
       `UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6,
        date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12,
        paid_amount=$13, client_signature=$14, assigned_technician_id=$15, assigned_technician_name=$16
-       WHERE id=$17 AND ${isAdmin ? 'user_id IN (SELECT id FROM users WHERE account_id=$18)' : '(user_id=$18 OR assigned_technician_id=$18)'}`,
+       WHERE id=$17`,
       [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status, o.date, o.priority,
-       o.description || '', o.clientValue, o.paymentStatus, o.paidDate || null, o.paidAmount ?? null,
-       o.clientSignatureKey ?? null, o.assignedTechnicianId ?? null, o.assignedTechnicianName ?? null, id,
-       isAdmin ? accountId : userId]
+       o.description || '', clientValue, paymentStatus, paidDate, paidAmount,
+       clientSignature, assignedTechnicianId, assignedTechnicianName, id]
     );
-
-    if (updateResult.rowCount === 0) return res.status(404).json({ error: 'Ordem não encontrada' });
 
     const ctx = await getAccountContext(userId);
     if (ctx) assertPhotoLimit(ctx.plan, o.attendances || []);
 
-    await pool.query('DELETE FROM expenses WHERE order_id = $1', [id]);
-    for (const e of (o.expenses || [])) {
-      await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
-    }
+    // Financial records are administrator-controlled. A technician update must
+    // never be able to delete or replace payments/expenses by omission.
+    if (isAdmin) {
+      await pool.query('DELETE FROM expenses WHERE order_id = $1', [id]);
+      for (const e of (o.expenses || [])) {
+        await pool.query('INSERT INTO expenses (id, order_id, label, amount) VALUES ($1,$2,$3,$4)', [e.id || `${Date.now()}-${Math.random()}`, id, e.label, e.amount]);
+      }
 
-    await pool.query('DELETE FROM order_payments WHERE order_id = $1', [id]);
-    for (const p of (o.payments || [])) {
-      await pool.query('INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)', [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
+      await pool.query('DELETE FROM order_payments WHERE order_id = $1', [id]);
+      for (const p of (o.payments || [])) {
+        await pool.query('INSERT INTO order_payments (id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6)', [p.id || `pay-${Date.now()}-${Math.random()}`, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
+      }
     }
 
     await pool.query('DELETE FROM attendances WHERE order_id = $1', [id]);
