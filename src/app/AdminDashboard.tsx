@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { BarChart3, CalendarDays, CheckCircle2, ClipboardList, Clock3, DollarSign, LogOut, Menu, Users, Wrench, X } from 'lucide-react';
+import { BarChart3, Building2, CalendarDays, CheckCircle2, ClipboardList, Clock3, DollarSign, LogOut, Menu, Users, Wrench, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from './api';
 import TeamManagement from './TeamManagement';
@@ -9,6 +9,7 @@ import OrdersManagement from './OrdersManagement';
 import AttendanceManagement from './AttendanceManagement';
 import AgendaManagement from './AgendaManagement';
 import FinanceManagement from './FinanceManagement';
+import CompanyProfile from './CompanyProfile';
 import type { Client, OrderStatus, ServiceOrder } from './types';
 
 const STATUS: Record<OrderStatus, { label: string; className: string }> = {
@@ -18,7 +19,7 @@ const STATUS: Record<OrderStatus, { label: string; className: string }> = {
   cancelled: { label: 'Cancelada', className: 'bg-red-100 text-red-700' },
 };
 const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-type Section = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance';
+type Section = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company';
 type NavItem = { key: Section; icon: typeof BarChart3; label: string };
 const NAV: NavItem[] = [
   { key: 'dashboard', icon: BarChart3, label: 'Dashboard' },
@@ -28,6 +29,7 @@ const NAV: NavItem[] = [
   { key: 'team', icon: Wrench, label: 'Técnicos / Equipe' },
   { key: 'agenda', icon: CalendarDays, label: 'Agenda' },
   { key: 'finance', icon: DollarSign, label: 'Financeiro' },
+  { key: 'company', icon: Building2, label: 'Perfil da Empresa' },
 ];
 
 function StatCard({ icon: Icon, label, value, detail }: { icon: typeof ClipboardList; label: string; value: string | number; detail?: string }) {
@@ -91,6 +93,7 @@ export default function AdminDashboard() {
 
   const Layout = ({ children }: { children: ReactNode }) => <div className="min-h-screen bg-slate-50 text-slate-900"><Header /><div className="mx-auto flex max-w-[1600px]"><Sidebar /><main className="min-w-0 flex-1">{children}</main></div>{menuOpen && <button className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" onClick={() => setMenuOpen(false)} aria-label="Fechar menu" />}</div>;
 
+  if (section === 'company') return <Layout><CompanyProfile onBack={() => select('dashboard')} /></Layout>;
   if (section === 'team') return <Layout><TeamManagement onBack={() => select('dashboard')} /></Layout>;
   if (section === 'clients') return <Layout><ClientsManagement clients={clients} orders={orders} onClientsChange={setClients} onBack={() => select('dashboard')} /></Layout>;
   if (section === 'orders') return <Layout><OrdersManagement orders={orders} clients={clients} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
