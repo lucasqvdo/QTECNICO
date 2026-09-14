@@ -101,10 +101,15 @@ router.post('/password-reset/request', async (req, res) => {
       return res.status(404).json({ error: 'Não encontramos uma conta com esse e-mail' });
     }
 
-    res.json({ exists: true, resetToken: signPasswordResetToken(result.rows[0].email) });
+    // Never expose password-reset credentials through the API response.
+    // Email delivery must be wired before enabling password recovery in production.
+    const resetToken = signPasswordResetToken(result.rows[0].email);
+    console.warn('Password reset requested but email delivery is not configured for this account.');
+    void resetToken;
+    res.json({ exists: true, delivery: 'unavailable' });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'Erro ao verificar a conta' });
+    res.status(500).json({ error: 'Erro ao solicitar recuperação de senha' });
   }
 });
 
