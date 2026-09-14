@@ -91,11 +91,21 @@ router.post('/authenticate/options', webAuthnRateLimit, async (req, res) => {
     assertWebAuthnTransport(req);
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     if (!email) return res.status(400).json({ error: 'Informe o e-mail para usar a biometria' });
-    const userResult = await pool.query('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
-    const user = userResult.rows[0];
-    if (!user) return res.status(404).json({ error: 'E-mail ou biometria não cadastrados' });
+
+    // Do not reveal whether an account exists or whether it has WebAuthn credentials.
+    // Unknown emails and known emails without credentials intentionally follow the same response path.
+    const credentialResult = await pool.query(
+      `SELECT u.id
+       FROM users u
+       INNER JOIN webauthn_credentials c ON c.user_id = u.id
+       WHERE LOWER(u.email) = $1
+       LIMIT 1`,
+      [email],
+    );
+    const user = credentialResult.rows[0];
+    if (!user) return res.status(400).json({ error: 'E-mail ou biometria não cadastrados' });
+
     const credentials = await pool.query('SELECT id, transports FROM webauthn_credentials WHERE user_id = $1', [user.id]);
-    if (credentials.rows.length === 0) return res.status(404).json({ error: 'Nenhuma biometria cadastrada para esta conta' });
     const config = getWebAuthnConfig(req);
     const options = await generateAuthenticationOptions({ rpID: config.rpID, allowCredentials: credentials.rows.map(credential => ({ id: credential.id, transports: credential.transports || undefined })), userVerification: 'required', timeout: 60_000 });
     await saveChallenge(user.id, 'authentication', options.challenge);
