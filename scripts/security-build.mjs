@@ -32,9 +32,14 @@ if (!source.includes('SecureLoginScreen')) {
   }
   source = source.replace(legacyReturn, secureReturn);
 
+  const sessionEffectAnchor = '  useEffect(() => {\n    const token = localStorage.getItem("qtecnico_token");';
+  const sessionEffect = `  useEffect(() => {\n    const handleSessionExpired = () => {\n      setOrders([]);\n      setClients([]);\n      setScreen("login");\n      setLoginPassword("");\n    };\n    window.addEventListener("qtecnico-session-expired", handleSessionExpired);\n    return () => window.removeEventListener("qtecnico-session-expired", handleSessionExpired);\n  }, []);\n\n  useEffect(() => {\n    const token = localStorage.getItem("qtecnico_token");`;
+  if (!source.includes('qtecnico-session-expired')) {
+    if (!source.includes(sessionEffectAnchor)) throw new Error('Security build: session effect anchor not found.');
+    source = source.replace(sessionEffectAnchor, sessionEffect);
+  }
+
   fs.writeFileSync(appPath, source);
 }
 
-// Defense-in-depth: never allow a legacy plaintext password key into the browser storage.
-// The secure login screen also removes any stale value.
 console.log('Security build: legacy login flow replaced with secure email-code recovery.');
