@@ -10,20 +10,10 @@ if (!process.env.JWT_SECRET) {
 
 const SECRET: string = process.env.JWT_SECRET;
 
+// Short-lived bearer sessions reduce the impact of a stolen token.
+// The client must re-authenticate after 12 hours.
 export function signToken(payload: Record<string, unknown>) {
-  return jwt.sign(payload, SECRET, { expiresIn: '30d' });
-}
-
-export function signPasswordResetToken(email: string) {
-  return jwt.sign({ email, purpose: 'password-reset' }, SECRET, { expiresIn: '15m' });
-}
-
-export function verifyPasswordResetToken(token: string) {
-  const payload = jwt.verify(token, SECRET) as Record<string, unknown>;
-  if (payload.purpose !== 'password-reset' || typeof payload.email !== 'string') {
-    throw new Error('Invalid password reset token');
-  }
-  return payload;
+  return jwt.sign(payload, SECRET, { expiresIn: '12h' });
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
