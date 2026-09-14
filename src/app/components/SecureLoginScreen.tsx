@@ -71,7 +71,7 @@ export default function SecureLoginScreen({
   const handleRegister = async () => {
     clearFeedback();
     if (!regName.trim() || !regEmail.trim()) return setFormError('Informe nome e e-mail.');
-    if (regPass.length < 6) return setFormError('A senha deve ter no mínimo 6 caracteres.');
+    if (regPass.length < 8) return setFormError('A senha deve ter no mínimo 8 caracteres.');
     if (regPass !== regConfirm) return setFormError('As senhas não coincidem.');
     setLoading(true);
     try { await onRegister(regName.trim(), regEmail.trim(), regPass); }
@@ -103,7 +103,7 @@ export default function SecureLoginScreen({
   const handleResetPassword = async () => {
     clearFeedback();
     if (!/^\d{6}$/.test(resetCode.trim())) return setFormError('Informe o código de 6 dígitos recebido por e-mail.');
-    if (newPassword.length < 6) return setFormError('A nova senha deve ter no mínimo 6 caracteres.');
+    if (newPassword.length < 8) return setFormError('A nova senha deve ter no mínimo 8 caracteres.');
     if (newPassword !== newPasswordConfirm) return setFormError('As senhas não coincidem.');
     setLoading(true);
     try {
@@ -156,7 +156,7 @@ export default function SecureLoginScreen({
           <div className="space-y-4">
             <input value={regName} onChange={e => setRegName(e.target.value)} placeholder="Nome completo" className={inputCls} />
             <input type="email" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="seu@email.com" className={inputCls} />
-            <input type="password" value={regPass} onChange={e => setRegPass(e.target.value)} placeholder="Senha — mínimo 6 caracteres" className={inputCls} />
+            <input type="password" value={regPass} onChange={e => setRegPass(e.target.value)} placeholder="Senha — mínimo 8 caracteres" className={inputCls} />
             <input type="password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} placeholder="Confirmar senha" className={inputCls} onKeyDown={e => e.key === 'Enter' && handleRegister()} />
             {formError && <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm"><AlertCircle size={14} />{formError}</div>}
             <button onClick={handleRegister} disabled={loading} className="w-full py-3.5 rounded-xl font-semibold text-sm disabled:opacity-60" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>{loading ? 'Criando conta...' : 'Criar conta'}</button>
@@ -182,7 +182,7 @@ export default function SecureLoginScreen({
 
         {mode === 'new-password' && <>
           <p className="text-base font-semibold text-foreground mb-2">Definir nova senha</p><p className="text-sm text-muted-foreground mb-4">Código válido por 15 minutos e de uso único.</p>
-          <div className="space-y-4"><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Nova senha — mínimo 6 caracteres" className={inputCls} /><input type="password" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)} placeholder="Confirmar nova senha" className={inputCls} />
+          <div className="space-y-4"><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Nova senha — mínimo 8 caracteres" className={inputCls} /><input type="password" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)} placeholder="Confirmar nova senha" className={inputCls} />
             {formError && <div className="text-sm text-red-600">{formError}</div>}
             <button onClick={handleResetPassword} disabled={loading} className="w-full py-3.5 rounded-xl font-semibold text-sm disabled:opacity-60" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>{loading ? 'Salvando...' : 'Salvar nova senha'}</button><button onClick={() => setMode('code')} className="w-full py-3 rounded-xl font-semibold text-sm border-2" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>Voltar</button>
           </div>
