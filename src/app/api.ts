@@ -8,23 +8,29 @@ import type {
 
 const BASE = '/api';
 
-function getToken() {
-  return localStorage.getItem('qtecnico_token');
+function getCsrfToken() {
+  const match = document.cookie.match(/(?:^|; )qtecnico_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
+  const method = (options.method || 'GET').toUpperCase();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrf = getCsrfToken();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
+    credentials: 'include',
+    headers,
   });
 
-  if (res.status === 401 && token) {
-    localStorage.removeItem('qtecnico_token');
+  if (res.status === 401) {
     window.dispatchEvent(new CustomEvent('qtecnico-session-expired'));
   }
 
@@ -60,6 +66,7 @@ export interface TeamMember {
 export const api = {
   login: (email: string, password: string) => request<{ token: string; user: UserProfile }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   register: (name: string, email: string, password: string) => request<{ token: string; user: UserProfile }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
+  logout: () => request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
   requestPasswordReset: (email: string) => request<{ message: string }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }),
   resetPassword: (email: string, code: string, password: string) => request<{ success: boolean }>('/auth/password-reset/confirm', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   webauthnRegisterOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('/auth/webauthn/register/options', { method: 'POST' }),
