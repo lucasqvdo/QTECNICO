@@ -1,4 +1,4 @@
-import type { Express, Request } from 'express';
+import type { Express } from 'express';
 import cors from 'cors';
 
 function allowedOrigins() {
@@ -19,7 +19,7 @@ export function applyHttpSecurity(app: Express) {
       if (!origin) return callback(null, true);
       if (configuredOrigins.includes(origin)) return callback(null, true);
       if (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
-      return callback(new Error('Origin não autorizada'));
+      return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
