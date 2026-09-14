@@ -4,7 +4,6 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-
 function figmaAssetResolver() {
   return {
     name: 'figma-asset-resolver',
@@ -20,23 +19,23 @@ function figmaAssetResolver() {
 export default defineConfig({
   plugins: [
     figmaAssetResolver(),
-    // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
     VitePWA({
-      // 'autoUpdate': registra o SW automaticamente e atualiza em background.
-      // O usuário não precisa fazer nada — quando houver nova versão, ela é
-      // baixada silenciosamente e aplicada no próximo reload.
+      // A registration is handled explicitly in src/main.tsx so there is
+      // exactly one PWA registration path and no race with an injected script.
+      injectRegister: null,
       registerType: 'autoUpdate',
 
-      // Inclui o SW no build de produção e no dev server (para testar)
       devOptions: {
         enabled: true,
         type: 'module',
       },
 
-      // Web App Manifest — define como o app aparece instalado
+      // Change the SW filename to force existing installations to replace the
+      // previous service worker instead of continuing to serve its old shell.
+      filename: 'sw-v2.js',
+
       manifest: {
         name: 'QTecnico — Gestão de OS',
         short_name: 'QTecnico',
@@ -67,22 +66,18 @@ export default defineConfig({
         ],
       },
 
-      // Estratégia Workbox: garantir que uma nova versão do shell assuma
-      // imediatamente o controle e limpe caches de versões anteriores.
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
 
-        // Pré-cacheia o shell do app (JS/CSS/HTML gerados pelo Vite)
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-
-        // Rotas de API nunca devem ser cacheadas
+        // Do not precache index.html. The document must always be obtained
+        // from the server so a new deployment cannot start with an old shell.
+        globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
         navigateFallbackDenylist: [/^\/api\//],
 
         runtimeCaching: [
           {
-            // Fontes do Google (se houver)
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
@@ -92,7 +87,6 @@ export default defineConfig({
             },
           },
           {
-            // Imagens do storage (Backblaze B2) — cache por 1 hora
             urlPattern: /^https:\/\/.*backblazeb2\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
