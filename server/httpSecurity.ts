@@ -1,31 +1,8 @@
 import type { Express } from 'express';
-import cors from 'cors';
-
-function allowedOrigins() {
-  return (process.env.CORS_ORIGIN || '')
-    .split(',')
-    .map(value => value.trim())
-    .filter(Boolean);
-}
 
 export function applyHttpSecurity(app: Express) {
-  const configuredOrigins = allowedOrigins();
-
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
-
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (configuredOrigins.includes(origin)) return callback(null, true);
-      if (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
-      return callback(null, false);
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false,
-    maxAge: 600,
-  }));
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
