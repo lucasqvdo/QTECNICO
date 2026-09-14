@@ -85,8 +85,7 @@ router.post('/login', authRateLimit, async (req, res) => {
     if (!await bcrypt.compare(password, user.password_hash)) return res.status(401).json({ error: 'E-mail ou senha incorretos' });
 
     await createSession(user.id, res);
-    // Kept temporarily for the existing client contract. This is NOT an authentication credential.
-    res.json({ token: 'cookie-session', user: publicUser(user) });
+    res.json({ user: publicUser(user) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Erro interno' });
@@ -124,7 +123,7 @@ router.post('/register', authRateLimit, async (req, res) => {
     await client.query('COMMIT');
 
     await createSession(user.id, res);
-    res.status(201).json({ token: 'cookie-session', user: publicUser(user) });
+    res.status(201).json({ user: publicUser(user) });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error(e);
