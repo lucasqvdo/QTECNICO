@@ -20,6 +20,14 @@ async function ensureAdminSchema() {
   `);
 }
 
+async function getAdminAccountId(userId: number) {
+  const result = await pool.query(
+    `SELECT account_id FROM users WHERE id = $1 AND is_admin = TRUE`,
+    [userId]
+  );
+  return result.rows[0]?.account_id as number | undefined;
+}
+
 router.get('/me', requireAuth, async (req, res) => {
   const userId = req.userId;
   try {
@@ -58,15 +66,19 @@ router.get('/admin/access', async (req, res) => {
   }
 });
 
-// Administrative team management. Password hashes and other secrets never
-// leave the server; only the fields required by the admin UI are returned.
-router.get('/admin/team', requireAdmin, async (_req, res) => {
+// Administrative team management is always scoped to the administrator's account.
+router.get('/admin/team', requireAdmin, async (req, res) => {
   try {
     await ensureAdminSchema();
+    const accountId = await getAdminAccountId(req.userId);
+    if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
+
     const result = await pool.query(
       `SELECT id, name, role, phone, email, is_admin, created_at
        FROM users
-       ORDER BY name ASC, id ASC`
+       WHERE account_id = $1
+       ORDER BY name ASC, id ASC`,
+      [accountId]
     );
     res.json(result.rows.map((u) => ({
       id: u.id,
@@ -95,15 +107,18 @@ router.post('/admin/team', requireAdmin, async (req, res) => {
 
   try {
     await ensureAdminSchema();
+    const accountId = await getAdminAccountId(req.userId);
+    if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
+
     const exists = await pool.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     if (exists.rows.length) return res.status(409).json({ error: 'E-mail já cadastrado' });
 
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      `INSERT INTO users (name, role, phone, email, password_hash, is_admin)
-       VALUES ($1, $2, $3, $4, $5, FALSE)
+      `INSERT INTO users (name, role, phone, email, password_hash, is_admin, account_id)
+       VALUES ($1, $2, $3, $4, $5, FALSE, $6)
        RETURNING id, name, role, phone, email, is_admin, created_at`,
-      [name, role, phone, email, hash]
+      [name, role, phone, email, hash, accountId]
     );
     const u = result.rows[0];
     res.status(201).json({
@@ -129,11 +144,17 @@ router.delete('/admin/team/:id', requireAdmin, async (req, res) => {
 
   try {
     await ensureAdminSchema();
-    const target = await pool.query('SELECT id, is_admin FROM users WHERE id = $1', [id]);
-    if (!target.rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });
+    const accountId = await getAdminAccountId(requesterId);
+    if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
+
+    const target = await pool.query(
+      'SELECT id, is_admin FROM users WHERE id = $1 AND account_id = $2',
+      [id, accountId]
+    );
+    if (!target.rows[0]) return res.status(404).json({ error: 'Usuário não encontrado na conta administrativa' });
     if (target.rows[0].is_admin) return res.status(400).json({ error: 'Remova o privilégio administrativo antes de excluir um administrador' });
 
-    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    await pool.query('DELETE FROM users WHERE id = $1 AND account_id = $2', [id, accountId]);
     res.json({ success: true });
   } catch (e) {
     console.error(e);
