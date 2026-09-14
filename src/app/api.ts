@@ -23,15 +23,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const csrf = getCsrfToken();
     if (csrf) headers['X-CSRF-Token'] = csrf;
   }
-
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers,
-  });
-
+  const res = await fetch(`${BASE}${path}`, { ...options, credentials: 'include', headers });
   if (res.status === 401) window.dispatchEvent(new CustomEvent('qtecnico-session-expired'));
-
   const contentType = res.headers.get('content-type') || '';
   const text = await res.text();
   let body: any = null;
@@ -42,35 +35,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export interface UserProfile {
-  id: number;
-  name: string;
-  role: string;
-  phone: string;
-  email: string;
-  isAdmin?: boolean;
-  photoUrl?: string | null;
+  id: number; name: string; role: string; phone: string; email: string; isAdmin?: boolean; photoUrl?: string | null;
+}
+export interface TeamMember {
+  id: number; name: string; role: string; phone: string; email: string; isAdmin: boolean; createdAt?: string;
 }
 
-export interface TeamMember {
-  id: number;
-  name: string;
-  role: string;
-  phone: string;
-  email: string;
-  isAdmin: boolean;
-  createdAt?: string;
-}
+type AuthResponse = { user: UserProfile; token?: never };
 
 export const api = {
-  login: (email: string, password: string) => request<{ user: UserProfile }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (name: string, email: string, password: string) => request<{ user: UserProfile }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
+  login: (email: string, password: string) => request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: (name: string, email: string, password: string) => request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
   logout: () => request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
   requestPasswordReset: (email: string) => request<{ message: string }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }),
   resetPassword: (email: string, code: string, password: string) => request<{ success: boolean }>('/auth/password-reset/confirm', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   webauthnRegisterOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('/auth/webauthn/register/options', { method: 'POST' }),
   webauthnRegisterVerify: (response: RegistrationResponseJSON) => request<{ success: boolean }>('/auth/webauthn/register/verify', { method: 'POST', body: JSON.stringify(response) }),
   webauthnAuthenticationOptions: (email: string) => request<PublicKeyCredentialRequestOptionsJSON>('/auth/webauthn/authenticate/options', { method: 'POST', body: JSON.stringify({ email }) }),
-  webauthnAuthenticationVerify: (response: AuthenticationResponseJSON) => request<{ user: UserProfile }>('/auth/webauthn/authenticate/verify', { method: 'POST', body: JSON.stringify(response) }),
+  webauthnAuthenticationVerify: (response: AuthenticationResponseJSON) => request<AuthResponse>('/auth/webauthn/authenticate/verify', { method: 'POST', body: JSON.stringify(response) }),
   getMe: () => request<UserProfile>('/users/me'),
   getAdminAccess: () => request<{ allowed: boolean }>('/users/admin/access'),
   getTeam: () => request<TeamMember[]>('/users/admin/team'),
