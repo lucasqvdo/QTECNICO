@@ -24,6 +24,20 @@ async function saveChallenge(userId: number, type: 'registration' | 'authenticat
   await pool.query(`INSERT INTO webauthn_challenges (user_id, type, challenge, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '5 minutes')`, [userId, type, challenge]);
 }
 
+async function saveDiscoverableAuthenticationChallenge(challenge: string) {
+  await pool.query('DELETE FROM webauthn_auth_challenges WHERE expires_at <= NOW()');
+  await pool.query('INSERT INTO webauthn_auth_challenges (challenge, expires_at) VALUES ($1, NOW() + INTERVAL \'5 minutes\')', [challenge]);
+}
+
+function getClientDataChallenge(response: AuthenticationResponseJSON) {
+  try {
+    const clientData = JSON.parse(Buffer.from(response.response.clientDataJSON, 'base64url').toString('utf8'));
+    return typeof clientData?.challenge === 'string' ? clientData.challenge : null;
+  } catch {
+    return null;
+  }
+}
+
 function sendWebAuthnError(res: any, error: unknown) {
   const message = error instanceof Error ? error.message : 'Erro WebAuthn';
   console.error('WebAuthn:', message);
@@ -42,7 +56,8 @@ router.post('/register/options', webAuthnRateLimit, requireAuth, async (req, res
     const options = await generateRegistrationOptions({
       rpName: 'QTecnico', rpID: config.rpID, userName: user.email, userDisplayName: user.name,
       userID: Buffer.from(String(user.id)), timeout: 60_000, attestationType: 'none',
-      authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+      // A Passkey precisa ser discoverable para permitir login sem e-mail.
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
       excludeCredentials: credentials.rows.map(credential => ({ id: credential.id, transports: credential.transports || undefined })),
     });
     await saveChallenge(userId, 'registration', options.challenge);
@@ -62,7 +77,7 @@ router.post('/register/verify', webAuthnRateLimit, requireAuth, async (req, res)
     if (!challenge) return res.status(400).json({ error: 'Desafio WebAuthn expirado. Tente novamente.' });
     const config = getWebAuthnConfig(req);
     const verification = await verifyRegistrationResponse({ response, expectedChallenge: challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, requireUserVerification: true });
-    if (!verification.verified || !verification.registrationInfo) return res.status(400).json({ error: 'Não foi possível validar a biometria' });
+    if (!verification.verified || !verification.registrationInfo) return res.status(400).json({ error: 'Não foi possível validar a Passkey' });
     const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
 
     client = await pool.connect();
@@ -90,10 +105,21 @@ router.post('/authenticate/options', webAuthnRateLimit, async (req, res) => {
   try {
     assertWebAuthnTransport(req);
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    if (!email) return res.status(400).json({ error: 'Informe o e-mail para usar a biometria' });
+    const config = getWebAuthnConfig(req);
 
-    // Do not reveal whether an account exists or whether it has WebAuthn credentials.
-    // Unknown emails and known emails without credentials intentionally follow the same response path.
+    if (!email) {
+      // Usernameless flow: the authenticator discovers the account from the
+      // discoverable credential. No account information is exposed by this endpoint.
+      const options = await generateAuthenticationOptions({
+        rpID: config.rpID,
+        userVerification: 'required',
+        timeout: 60_000,
+      });
+      await saveDiscoverableAuthenticationChallenge(options.challenge);
+      return res.json(options);
+    }
+
+    // Legacy/email-assisted flow remains available as a compatibility fallback.
     const credentialResult = await pool.query(
       `SELECT u.id
        FROM users u
@@ -103,11 +129,15 @@ router.post('/authenticate/options', webAuthnRateLimit, async (req, res) => {
       [email],
     );
     const user = credentialResult.rows[0];
-    if (!user) return res.status(400).json({ error: 'E-mail ou biometria não cadastrados' });
+    if (!user) return res.status(400).json({ error: 'E-mail ou Passkey não cadastrados' });
 
     const credentials = await pool.query('SELECT id, transports FROM webauthn_credentials WHERE user_id = $1', [user.id]);
-    const config = getWebAuthnConfig(req);
-    const options = await generateAuthenticationOptions({ rpID: config.rpID, allowCredentials: credentials.rows.map(credential => ({ id: credential.id, transports: credential.transports || undefined })), userVerification: 'required', timeout: 60_000 });
+    const options = await generateAuthenticationOptions({
+      rpID: config.rpID,
+      allowCredentials: credentials.rows.map(credential => ({ id: credential.id, transports: credential.transports || undefined })),
+      userVerification: 'required',
+      timeout: 60_000,
+    });
     await saveChallenge(user.id, 'authentication', options.challenge);
     res.json(options);
   } catch (error) { sendWebAuthnError(res, error); }
@@ -119,30 +149,58 @@ router.post('/authenticate/verify', webAuthnRateLimit, async (req, res) => {
     assertWebAuthnTransport(req);
     const response = req.body as AuthenticationResponseJSON;
     if (!response?.id || !response.response?.clientDataJSON || !response.response.authenticatorData || !response.response.signature) return res.status(400).json({ error: 'Resposta WebAuthn incompleta' });
+
     const credentialResult = await pool.query('SELECT id, user_id, public_key, counter, transports FROM webauthn_credentials WHERE id = $1', [response.id]);
     const credentialRow = credentialResult.rows[0];
-    if (!credentialRow) return res.status(401).json({ error: 'Biometria não cadastrada' });
+    if (!credentialRow) return res.status(401).json({ error: 'Passkey não cadastrada' });
+
     const userResult = await pool.query('SELECT id, email, name, role, phone, photo_url, is_admin FROM users WHERE id = $1', [credentialRow.user_id]);
     const user = userResult.rows[0];
     if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
-    const challengeResult = await pool.query(`SELECT challenge FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND expires_at > NOW() ORDER BY expires_at DESC LIMIT 1`, [credentialRow.user_id]);
-    const challenge = challengeResult.rows[0]?.challenge;
-    if (!challenge) return res.status(400).json({ error: 'Desafio WebAuthn expirado. Tente novamente.' });
+
     const config = getWebAuthnConfig(req);
+    const clientDataChallenge = getClientDataChallenge(response);
+    if (!clientDataChallenge) return res.status(400).json({ error: 'Desafio WebAuthn inválido' });
+
+    // A discoverable login has no user ID until the credential is returned.
+    // The credential ID is the authoritative account binding; the challenge is
+    // looked up from clientDataJSON and then consumed exactly once.
+    const discoverableChallenge = await pool.query(
+      `SELECT challenge FROM webauthn_auth_challenges WHERE challenge = $1 AND expires_at > NOW()`,
+      [clientDataChallenge],
+    );
+    const discoverable = discoverableChallenge.rows[0]?.challenge;
+
+    const legacyChallenge = discoverable
+      ? null
+      : (await pool.query(`SELECT challenge FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND expires_at > NOW() ORDER BY expires_at DESC LIMIT 1`, [credentialRow.user_id])).rows[0]?.challenge;
+    const challenge = discoverable || legacyChallenge;
+    if (!challenge) return res.status(400).json({ error: 'Desafio WebAuthn expirado. Tente novamente.' });
+
     const verification = await verifyAuthenticationResponse({
-      response, expectedChallenge: challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, requireUserVerification: true,
+      response,
+      expectedChallenge: challenge,
+      expectedOrigin: config.origin,
+      expectedRPID: config.rpID,
+      requireUserVerification: true,
       credential: { id: credentialRow.id, publicKey: new Uint8Array(credentialRow.public_key), counter: Number(credentialRow.counter), transports: credentialRow.transports || undefined },
     });
-    if (!verification.verified) return res.status(401).json({ error: 'Não foi possível validar a biometria' });
+    if (!verification.verified) return res.status(401).json({ error: 'Não foi possível validar a Passkey' });
 
     client = await pool.connect();
     await client.query('BEGIN');
     const counterUpdate = await client.query('UPDATE webauthn_credentials SET counter = $1 WHERE id = $2 AND counter = $3', [verification.authenticationInfo.newCounter, credentialRow.id, credentialRow.counter]);
     if (counterUpdate.rowCount !== 1) {
       await client.query('ROLLBACK');
-      return res.status(401).json({ error: 'Credencial biométrica desatualizada. Tente novamente.' });
+      return res.status(401).json({ error: 'Credencial Passkey desatualizada. Tente novamente.' });
     }
-    const consumed = await client.query(`DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND challenge = $2 AND expires_at > NOW()`, [credentialRow.user_id, challenge]);
+
+    let consumed;
+    if (discoverable) {
+      consumed = await client.query(`DELETE FROM webauthn_auth_challenges WHERE challenge = $1 AND expires_at > NOW()`, [challenge]);
+    } else {
+      consumed = await client.query(`DELETE FROM webauthn_challenges WHERE user_id = $1 AND type = 'authentication' AND challenge = $2 AND expires_at > NOW()`, [credentialRow.user_id, challenge]);
+    }
     if (consumed.rowCount !== 1) {
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'Desafio WebAuthn inválido ou já utilizado' });
