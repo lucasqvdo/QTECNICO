@@ -20,11 +20,16 @@ if (!source.includes("./httpSecurity.js")) {
 }
 
 const unsafeSeedCondition = 'if (userCheck.rows.length === 0) {';
-const safeSeedCondition = "if (process.env.NODE_ENV !== 'production' && userCheck.rows.length === 0) {";
-if (source.includes(unsafeSeedCondition) && !source.includes(safeSeedCondition)) {
-  source = source.replace(unsafeSeedCondition, safeSeedCondition);
+const legacySafeSeedCondition = "if (process.env.NODE_ENV !== 'production' && userCheck.rows.length === 0) {";
+const explicitSeedCondition = "if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_DEMO_SEED === 'true' && userCheck.rows.length === 0) {";
+
+if (source.includes(unsafeSeedCondition)) {
+  source = source.replace(unsafeSeedCondition, explicitSeedCondition);
+  changed = true;
+} else if (source.includes(legacySafeSeedCondition)) {
+  source = source.replace(legacySafeSeedCondition, explicitSeedCondition);
   changed = true;
 }
 
 if (changed) fs.writeFileSync(indexPath, source);
-console.log('Security server: HTTP hardening installed; production demo seeding disabled.');
+console.log('Security server: HTTP hardening installed; demo seeding requires explicit ENABLE_DEMO_SEED=true outside production.');
