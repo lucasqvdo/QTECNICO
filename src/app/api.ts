@@ -30,9 +30,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers,
   });
 
-  if (res.status === 401) {
-    window.dispatchEvent(new CustomEvent('qtecnico-session-expired'));
-  }
+  if (res.status === 401) window.dispatchEvent(new CustomEvent('qtecnico-session-expired'));
 
   const contentType = res.headers.get('content-type') || '';
   const text = await res.text();
@@ -64,15 +62,15 @@ export interface TeamMember {
 }
 
 export const api = {
-  login: (email: string, password: string) => request<{ token: string; user: UserProfile }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (name: string, email: string, password: string) => request<{ token: string; user: UserProfile }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
+  login: (email: string, password: string) => request<{ user: UserProfile }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: (name: string, email: string, password: string) => request<{ user: UserProfile }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
   logout: () => request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
   requestPasswordReset: (email: string) => request<{ message: string }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }),
   resetPassword: (email: string, code: string, password: string) => request<{ success: boolean }>('/auth/password-reset/confirm', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   webauthnRegisterOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('/auth/webauthn/register/options', { method: 'POST' }),
   webauthnRegisterVerify: (response: RegistrationResponseJSON) => request<{ success: boolean }>('/auth/webauthn/register/verify', { method: 'POST', body: JSON.stringify(response) }),
   webauthnAuthenticationOptions: (email: string) => request<PublicKeyCredentialRequestOptionsJSON>('/auth/webauthn/authenticate/options', { method: 'POST', body: JSON.stringify({ email }) }),
-  webauthnAuthenticationVerify: (response: AuthenticationResponseJSON) => request<{ token: string; user: UserProfile }>('/auth/webauthn/authenticate/verify', { method: 'POST', body: JSON.stringify(response) }),
+  webauthnAuthenticationVerify: (response: AuthenticationResponseJSON) => request<{ user: UserProfile }>('/auth/webauthn/authenticate/verify', { method: 'POST', body: JSON.stringify(response) }),
   getMe: () => request<UserProfile>('/users/me'),
   getAdminAccess: () => request<{ allowed: boolean }>('/users/admin/access'),
   getTeam: () => request<TeamMember[]>('/users/admin/team'),
