@@ -37,29 +37,57 @@ router.post('/login', async (req, res) => {
 
 router.post('/register', async (req, res) => {
   const { name, email, password } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ error: 'Preencha todos os campos' });
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!name || !normalizedEmail || !password) return res.status(400).json({ error: 'Preencha todos os campos' });
   if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres' });
 
+  const client = await pool.connect();
   try {
-    const exists = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (exists.rows.length > 0) return res.status(409).json({ error: 'E-mail já cadastrado' });
+    await client.query('BEGIN');
+
+    const exists = await client.query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+    if (exists.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'E-mail já cadastrado' });
+    }
 
     const hash = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      `INSERT INTO users (name, role, phone, email, password_hash)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [name, 'Técnico', '', email, hash]
+    const userResult = await client.query(
+      `INSERT INTO users (name, role, phone, email, password_hash, is_admin)
+       VALUES ($1, $2, $3, $4, $5, TRUE) RETURNING id, name, role, phone, email, photo_url`,
+      [name, 'Administrador', '', normalizedEmail, hash]
     );
-    const userId = result.rows[0].id;
-    const token = signToken({ id: userId, email });
+    const user = userResult.rows[0];
 
+    const accountResult = await client.query(
+      `INSERT INTO accounts (owner_user_id, plan_key, subscription_status)
+       VALUES ($1, 'free', 'active') RETURNING id`,
+      [user.id]
+    );
+    const accountId = accountResult.rows[0].id;
+
+    await client.query('UPDATE users SET account_id = $1 WHERE id = $2', [accountId, user.id]);
+    await client.query('COMMIT');
+
+    const token = signToken({ id: user.id, email: user.email });
     res.status(201).json({
       token,
-      user: { id: userId, name, role: 'Técnico', phone: '', email, photoUrl: null },
+      user: {
+        id: user.id,
+        name: user.name,
+        role: user.role || 'Administrador',
+        phone: user.phone || '',
+        email: user.email,
+        photoUrl: user.photo_url || null,
+        isAdmin: true,
+      },
     });
   } catch (e) {
+    await client.query('ROLLBACK');
     console.error(e);
     res.status(500).json({ error: 'Erro ao criar conta' });
+  } finally {
+    client.release();
   }
 });
 
