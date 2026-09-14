@@ -1,6 +1,8 @@
 import type { Request } from 'express';
 
-const PRODUCTION_ORIGIN = 'https://qtecnico--lucasqvdo.replit.app';
+// Canonical production origin. WebAuthn RP IDs are derived from this origin,
+// so this must always match the public URL where the application is opened.
+const PRODUCTION_ORIGIN = 'https://qtecnico.onrender.com';
 
 function parseOrigin(value: string, allowHttp: boolean) {
   const url = new URL(value);
