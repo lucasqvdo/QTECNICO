@@ -40,8 +40,7 @@ export async function createSession(userId: number, res: Response) {
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
   await pool.query(
-    `INSERT INTO auth_sessions (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
+    `INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
     [userId, tokenHash, expiresAt],
   );
 
@@ -50,8 +49,7 @@ export async function createSession(userId: number, res: Response) {
 }
 
 export async function revokeCurrentSession(req: Request, res: Response) {
-  const cookies = parseCookies(req);
-  const token = cookies[SESSION_COOKIE];
+  const token = parseCookies(req)[SESSION_COOKIE];
   if (token) {
     await pool.query(
       'UPDATE auth_sessions SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL',
@@ -62,24 +60,31 @@ export async function revokeCurrentSession(req: Request, res: Response) {
   res.clearCookie(CSRF_COOKIE, { path: '/' });
 }
 
+export function validateCsrf(req: Request) {
+  const cookies = parseCookies(req);
+  const cookieToken = cookies[CSRF_COOKIE];
+  const headerToken = req.get('X-CSRF-Token');
+  return Boolean(cookieToken && headerToken && cookieToken === headerToken);
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return res.status(401).json({ error: 'Não autorizado' });
 
   try {
     const result = await pool.query(
-      `SELECT user_id
-       FROM auth_sessions
-       WHERE token_hash = $1
-         AND revoked_at IS NULL
-         AND expires_at > NOW()
+      `SELECT user_id FROM auth_sessions
+       WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
        LIMIT 1`,
       [hashSessionToken(token)],
     );
     const userId = result.rows[0]?.user_id;
-    if (typeof userId !== 'number') {
-      return res.status(401).json({ error: 'Sessão inválida ou expirada' });
+    if (typeof userId !== 'number') return res.status(401).json({ error: 'Sessão inválida ou expirada' });
+
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !validateCsrf(req)) {
+      return res.status(403).json({ error: 'Proteção CSRF inválida' });
     }
+
     req.userId = userId;
     next();
   } catch (error) {
@@ -92,9 +97,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   return requireAuth(req, res, async () => {
     try {
       const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.userId]);
-      if (!result.rows[0]?.is_admin) {
-        return res.status(403).json({ error: 'Acesso administrativo não autorizado' });
-      }
+      if (!result.rows[0]?.is_admin) return res.status(403).json({ error: 'Acesso administrativo não autorizado' });
       return next();
     } catch (error) {
       console.error('Admin authorization error:', error);
@@ -105,11 +108,4 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 
 export function hasSessionCookie(req: Request) {
   return Boolean(parseCookies(req)[SESSION_COOKIE]);
-}
-
-export function validateCsrf(req: Request) {
-  const cookies = parseCookies(req);
-  const cookieToken = cookies[CSRF_COOKIE];
-  const headerToken = req.get('X-CSRF-Token');
-  return Boolean(cookieToken && headerToken && cookieToken === headerToken);
 }
