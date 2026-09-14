@@ -9,42 +9,23 @@ permissions:
 
 jobs:
   cleanup:
-    if: github.event.head_commit.message != 'security: final auth frontend cleanup'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Remove legacy frontend auth marker
-        shell: python
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Clean legacy auth
+        run: node scripts/final-auth-cleanup.mjs
+      - name: Verify
         run: |
-          from pathlib import Path
-          p = Path('src/app/App.tsx')
-          s = p.read_text()
-          replacements = {
-            '  useEffect(() => {\n    const token = localStorage.getItem("qtecnico_token");\n    if (token) {\n      loadData()\n        .then(() => { setScreen("orders"); setActiveTab("orders"); })\n        .catch(() => localStorage.removeItem("qtecnico_token"));\n    }\n  // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, []);': '  useEffect(() => {\n    loadData()\n      .then(() => { setScreen("orders"); setActiveTab("orders"); })\n      .catch(() => {\n        setOrders([]);\n        setClients([]);\n      });\n  // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, []);',
-            '  const afterAuth = async (token: string, user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null }) => {\n    localStorage.setItem("qtecnico_token", token);': '  const afterAuth = async (user: { name: string; role: string; phone: string; email: string; photoUrl?: string | null }) => {',
-            '      const { token, user } = await api.login(loginEmail, loginPassword);\n      await afterAuth(token, user);': '      const { user } = await api.login(loginEmail, loginPassword);\n      await afterAuth(user);',
-            '    const { token, user } = await api.register(name, email, password);\n    await afterAuth(token, user);': '    const { user } = await api.register(name, email, password);\n    await afterAuth(user);',
-            '    await afterAuth(result.token, result.user);': '    await afterAuth(result.user);',
-            '  const handleLogout = () => {\n    localStorage.removeItem("qtecnico_token");\n    setOrders([]); setClients([]);\n    setScreen("login");\n  };': '  const handleLogout = async () => {\n    try {\n      await api.logout();\n    } finally {\n      setOrders([]); setClients([]);\n      setScreen("login");\n    }\n  };',
-          }
-          for old, new in replacements.items():
-            if old not in s:
-              raise SystemExit(f'Expected legacy block not found: {old[:80]!r}')
-            s = s.replace(old, new, 1)
-          if 'qtecnico_token' in s or 'localStorage' in s:
-            raise SystemExit('Legacy auth storage remains in App.tsx')
-          p.write_text(s)
-      - name: Commit cleanup
-        shell: bash
+          ! grep -R -n --exclude-dir=node_modules --exclude-dir=.git 'qtecnico_token' src/app
+          ! grep -R -n --exclude-dir=node_modules --exclude-dir=.git 'Authorization: Bearer' src/app
+      - name: Commit cleaned source and remove temporary files
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/final-auth-cleanup.yml scripts/final-auth-cleanup.mjs
           git add src/app/App.tsx
-          git commit -m 'security: final auth frontend cleanup' || exit 0
-          git push
-      - name: Remove temporary workflow
-        shell: bash
-        run: |
-          git rm .github/workflows/final-auth-cleanup.yml
-          git commit -m 'chore: remove temporary auth cleanup workflow'
-          git push
+          git commit -m 'security: final auth frontend cleanup'
+          git push origin HEAD:main
