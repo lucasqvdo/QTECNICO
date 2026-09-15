@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireAdmin } from '../auth.js';
 import { getAccountContext } from '../planLimits.js';
 
 const router = Router();
@@ -30,7 +30,7 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   const userId = req.userId;
   const c = req.body;
   const id = c.id || Date.now().toString();
@@ -47,7 +47,7 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   const userId = req.userId;
   const { id } = req.params;
   const c = req.body;
@@ -66,7 +66,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const accountId = await getAccountId(req.userId);
     const result = await pool.query(
