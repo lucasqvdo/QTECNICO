@@ -1,4 +1,4 @@
-import type { ServiceOrder, Client } from './types';
+import type { ServiceOrder, Client, OrderStatus } from './types';
 import type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
@@ -63,6 +63,13 @@ export interface CompanyProfileData {
   email: string; website: string; postalCode: string; address: string; number: string; complement: string;
   neighborhood: string; city: string; state: string; logoKey: string; description: string; updatedAt?: string;
 }
+export interface DashboardSummary {
+  period: string;
+  stats: { total: number; pending: number; inProgress: number; completed: number; cancelled: number; revenue: number; paid: number; costs: number; margin: number; clients: number; newClients: number };
+  monthly: { month: string; revenue: number; orders: number }[];
+  technicians: { id: number; name: string; orders: number; completed: number; revenue: number }[];
+  recent: { id: string; client: string; type: string; status: OrderStatus; date: string; value: number; technician: string | null }[];
+}
 
 type AuthResponse = { user: UserProfile; token?: never };
 
@@ -90,6 +97,7 @@ export const api = {
   },
   getMe: () => request<UserProfile>('/users/me'),
   getAdminAccess: () => request<{ allowed: boolean }>('/users/admin/access'),
+  getDashboardSummary: (days: string = '30') => request<DashboardSummary>(`/dashboard/summary?days=${encodeURIComponent(days)}`),
   getTeam: () => request<TeamMember[]>('/users/admin/team'),
   createTeamMember: (data: { name: string; email: string; password: string; phone: string; role: string }) => request<TeamMember>('/users/admin/team', { method: 'POST', body: JSON.stringify(data) }),
   deleteTeamMember: (id: number) => request<{ success: boolean }>(`/users/admin/team/${id}`, { method: 'DELETE' }),
