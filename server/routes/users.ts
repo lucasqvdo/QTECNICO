@@ -27,6 +27,12 @@ async function getCompanyProfile(accountId: number) {
 
 const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 
+function isSafeLogoKey(key: string, accountId: number) {
+  if (!key) return true;
+  if (key.startsWith('data:') || key.startsWith('http://') || key.startsWith('https://')) return true;
+  return key.startsWith(`profiles/${accountId}/`);
+}
+
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, name, role, phone, email, photo_url, is_admin FROM users WHERE id = $1', [req.userId]);
@@ -61,7 +67,8 @@ router.put('/admin/company-profile', requireAdmin, async (req, res) => {
       logoKey: normalize(req.body?.logoKey), description: normalize(req.body?.description),
     };
     if (!data.tradeName && !data.legalName) return res.status(400).json({ error: 'Informe pelo menos a razão social ou o nome fantasia' });
-    await pool.query(`INSERT INTO company_profiles (account_id, legal_name, trade_name, document, phone, whatsapp, email, website, address, number, complement, neighborhood, city, state, postal_code, logo_key, description, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) ON CONFLICT (account_id) DO UPDATE SET legal_name=EXCLUDED.legal_name, trade_name=EXCLUDED.trade_name, document=EXCLUDED.document, phone=EXCLUDED.phone, whatsapp=EXCLUDED.whatsapp, email=EXCLUDED.email, website=EXCLUDED.website, address=EXCLUDED.address, number=EXCLUDED.number, complement=EXCLUDED.complement, neighborhood=EXCLUDED.neighborhood, city=EXCLUDED.city, state=EXCLUDED.state, postal_code=EXCLUDED.postal_code, logo_key=EXCLUDED.logo_key, description=EXCLUDED.description, updated_at=NOW()`, [accountId, data.legalName, data.tradeName, data.document, data.phone, data.whatsapp, data.email, data.website, data.address, data.number, data.complement, data.neighborhood, data.city, data.state, data.postalCode, data.logoKey, data.description]);
+    if (!isSafeLogoKey(data.logoKey, accountId)) return res.status(400).json({ error: 'Logo inválida para esta conta' });
+    await pool.query(`INSERT INTO company_profiles (account_id, legal_name, trade_name, document, phone, whatsapp, email, website, address, number, complement, neighborhood, city, state, postal_code, logo_key, description, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) ON CONFLICT (account_id) DO UPDATE SET legal_name=EXCLUDED.legal_name, trade_name=EXCLUDED.trade_name, document=EXCLUDED.document, phone=EXCLUDED.phone, whatsapp=EXCLUDED.whatsapp, email=EXCLUDED.email, website=EXCLUDED.website, address=EXCLUDED.address, number=EXCLUDED.number, complement=EXCLUDED.complement, neighborhood=EXCLUDED.neighborhood, city=EXCLUDED.city, state=EXCLUDED.state, postal_code=EXCLUDED.postal_code, logo_key=EXCLUDED.logo_key, description=EXCLUDED.description, updated_at=NOW()`, [accountId, data.legalName, data.tradeName, data.document, data.phone, data.whatsapp, data.website, data.email, data.address, data.number, data.complement, data.neighborhood, data.city, data.state, data.postalCode, data.logoKey, data.description]);
     res.json(await getCompanyProfile(accountId));
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao salvar perfil da empresa' }); }
 });
@@ -106,16 +113,9 @@ router.delete('/admin/team/:id', requireAdmin, async (req, res) => {
     if (!target.rows[0]) return res.status(404).json({ error: 'Usuário não encontrado na conta administrativa' });
     if (target.rows[0].is_admin) return res.status(400).json({ error: 'Remova o privilégio administrativo antes de excluir um administrador' });
 
-    const refs = await pool.query(`
-      SELECT
-        (SELECT COUNT(*) FROM orders WHERE user_id = $1 AND account_id = $2) AS orders,
-        (SELECT COUNT(*) FROM clients WHERE user_id = $1 AND account_id = $2) AS clients
-    `, [id, accountId]);
-    const orderCount = Number(refs.rows[0]?.orders || 0);
-    const clientCount = Number(refs.rows[0]?.clients || 0);
-    if (orderCount > 0 || clientCount > 0) {
-      return res.status(409).json({ error: 'Este técnico possui histórico operacional e não pode ser excluído. Desative o acesso em vez de remover a conta.', orders: orderCount, clients: clientCount });
-    }
+    const refs = await pool.query(`SELECT (SELECT COUNT(*) FROM orders WHERE user_id = $1 AND account_id = $2) AS orders, (SELECT COUNT(*) FROM clients WHERE user_id = $1 AND account_id = $2) AS clients`, [id, accountId]);
+    const orderCount = Number(refs.rows[0]?.orders || 0); const clientCount = Number(refs.rows[0]?.clients || 0);
+    if (orderCount > 0 || clientCount > 0) return res.status(409).json({ error: 'Este técnico possui histórico operacional e não pode ser excluído. Desative o acesso em vez de remover a conta.', orders: orderCount, clients: clientCount });
 
     const client = await pool.connect();
     try {
@@ -127,12 +127,7 @@ router.delete('/admin/team/:id', requireAdmin, async (req, res) => {
       const deleted = await client.query('DELETE FROM users WHERE id = $1 AND account_id = $2 AND is_admin = FALSE', [id, accountId]);
       if (deleted.rowCount !== 1) throw new Error('Falha ao excluir o técnico');
       await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
     res.json({ success: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao remover técnico' }); }
 });
@@ -151,10 +146,7 @@ router.put('/me', requireAuth, async (req, res) => {
     if (photoKey && !photoKey.startsWith(`profiles/${accountId}/`)) return res.status(400).json({ error: 'Foto de perfil inválida para esta conta' });
     try {
       await pool.query('UPDATE users SET name=$1, phone=$2, email=$3, photo_url=$4 WHERE id=$5 AND account_id=$6', [name, phone, email, photoKey || null, userId, accountId]);
-    } catch (e: any) {
-      if (e?.code === '23505') return res.status(409).json({ error: 'E-mail já cadastrado' });
-      throw e;
-    }
+    } catch (e: any) { if (e?.code === '23505') return res.status(409).json({ error: 'E-mail já cadastrado' }); throw e; }
     res.json({ id: userId, name, role: current.rows[0].role || '', phone, email, photoUrl: await getDownloadUrl(photoKey || null), photoKey: photoKey || null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao atualizar perfil' }); }
 });
