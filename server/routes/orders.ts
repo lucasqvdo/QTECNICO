@@ -171,7 +171,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (isAdmin && has('payments')) {
       await db.query('DELETE FROM order_payments WHERE order_id = $1 AND account_id = $2', [id, accountId]);
       for (const p of (o.payments || [])) {
-        await db.query('INSERT INTO order_payments (id, account_id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [p.id || `pay-${Date.now()}-${Math.random()}`, accountId, id, p.label || 'Pagamento', p.date, p.status || 'pending']);
+        await db.query('INSERT INTO order_payments (id, account_id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [p.id || `pay-${Date.now()}-${Math.random()}`, accountId, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
       }
     }
 
