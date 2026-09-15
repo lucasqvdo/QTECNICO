@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { RequestHandler } from 'express';
 import { pool } from './db.js';
 
@@ -55,7 +56,8 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
 
 function normalizedEmailKey(req: Parameters<RequestHandler>[0]) {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-  return email ? `email:${email}` : 'email:missing';
+  if (!email) return 'email:missing';
+  return `email:${createHash('sha256').update(email).digest('hex')}`;
 }
 
 export const authRateLimit = createRateLimiter({
