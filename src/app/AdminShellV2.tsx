@@ -3,8 +3,12 @@ import { BarChart3, Building2, CalendarDays, ClipboardList, Clock3, DollarSign, 
 import { api } from './api';
 
 export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company';
+export type TechnicianSectionV2 = 'home' | 'orders' | 'attendances' | 'agenda' | 'profile';
+export type ShellMode = 'admin' | 'technician';
 
-const NAV = [
+type NavItem = readonly [string, typeof BarChart3, string, string];
+
+const ADMIN_NAV: NavItem[] = [
   ['dashboard', BarChart3, 'Dashboard', 'Visão geral do negócio'],
   ['orders', ClipboardList, 'Ordens de Serviço', 'Operação e chamados'],
   ['attendances', Clock3, 'Atendimentos', 'Execução em campo'],
@@ -13,15 +17,29 @@ const NAV = [
   ['agenda', CalendarDays, 'Agenda', 'Programação'],
   ['finance', DollarSign, 'Financeiro', 'Receitas e custos'],
   ['company', Building2, 'Perfil da Empresa', 'Dados da empresa'],
-] as const;
+];
 
-type Props = { section: AdminSectionV2; onSectionChange: (section: AdminSectionV2) => void; children: ReactNode };
+const TECH_NAV: NavItem[] = [
+  ['home', BarChart3, 'Início', 'Minha operação'],
+  ['orders', ClipboardList, 'Minhas Ordens', 'Chamados atribuídos'],
+  ['attendances', Clock3, 'Atendimentos', 'Execução em campo'],
+  ['agenda', CalendarDays, 'Agenda', 'Minha programação'],
+  ['profile', Users, 'Meu Perfil', 'Dados e acesso'],
+];
 
-export default function AdminShellV2({ section, onSectionChange, children }: Props) {
+type Props = {
+  section: string;
+  onSectionChange: (section: any) => void;
+  children: ReactNode;
+  mode?: ShellMode;
+};
+
+export default function AdminShellV2({ section, onSectionChange, children, mode = 'admin' }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [user, setUser] = useState({ name: 'Usuário', role: 'Administrador' });
+  const [user, setUser] = useState({ name: 'Usuário', role: mode === 'admin' ? 'Administrador' : 'Técnico' });
   const [company, setCompany] = useState('QTECNICO');
+  const nav = mode === 'admin' ? ADMIN_NAV : TECH_NAV;
 
   useEffect(() => {
     void Promise.all([api.getMe(), api.getCompanyProfile()]).then(([u, c]) => {
@@ -30,7 +48,7 @@ export default function AdminShellV2({ section, onSectionChange, children }: Pro
     }).catch(() => undefined);
   }, []);
 
-  const go = (s: AdminSectionV2) => { onSectionChange(s); setMobileOpen(false); };
+  const go = (s: string) => { onSectionChange(s); setMobileOpen(false); };
   const logout = async () => { try { await api.logout(); } finally { location.reload(); } };
 
   const side = (mobile = false) => (
@@ -54,19 +72,14 @@ export default function AdminShellV2({ section, onSectionChange, children }: Pro
       </div>
 
       {!mobile && collapsed && (
-        <button
-          onClick={() => setCollapsed(false)}
-          aria-label="Expandir menu"
-          title="Expandir menu"
-          className="absolute -right-3 top-[4.5rem] z-50 flex h-7 w-7 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-cyan-400 shadow-lg transition hover:bg-cyan-500 hover:text-slate-950"
-        >
+        <button onClick={() => setCollapsed(false)} aria-label="Expandir menu" title="Expandir menu" className="absolute -right-3 top-[4.5rem] z-50 flex h-7 w-7 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-cyan-400 shadow-lg transition hover:bg-cyan-500 hover:text-slate-950">
           <PanelLeftOpen size={16} />
         </button>
       )}
 
       <nav className="flex-1 overflow-y-auto p-3">
-        <p className={`${collapsed && !mobile ? 'hidden' : 'block'} px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500`}>Operação</p>
-        {NAV.map(([key, Icon, label, desc]) => (
+        <p className={`${collapsed && !mobile ? 'hidden' : 'block'} px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500`}>{mode === 'admin' ? 'Operação' : 'Meu trabalho'}</p>
+        {nav.map(([key, Icon, label, desc]) => (
           <button key={key} onClick={() => go(key)} title={collapsed && !mobile ? label : undefined} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left ${collapsed && !mobile ? 'justify-center' : ''} ${section === key ? 'bg-cyan-500 text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}>
             <Icon size={19} />
             {!(collapsed && !mobile) && <span><span className="block text-sm font-semibold">{label}</span><span className="block text-[10px] text-slate-500">{desc}</span></span>}
@@ -81,13 +94,14 @@ export default function AdminShellV2({ section, onSectionChange, children }: Pro
     </aside>
   );
 
+  const current = nav.find(x => x[0] === section);
   return (
     <div className="min-h-screen bg-slate-100">
       <header className={`fixed inset-x-0 top-0 z-30 h-16 border-b border-slate-200 bg-white/95 ${collapsed ? 'lg:left-[76px]' : 'lg:left-[272px]'}`}>
         <div className="flex h-full items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <button className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu /></button>
-            <div><b className="text-sm">{NAV.find(x => x[0] === section)?.[2]}</b><p className="hidden text-xs text-slate-500 sm:block">{NAV.find(x => x[0] === section)?.[3]}</p></div>
+            <div><b className="text-sm">{current?.[2] || 'QTECNICO'}</b><p className="hidden text-xs text-slate-500 sm:block">{current?.[3]}</p></div>
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden max-w-48 truncate rounded-full border px-3 py-1 text-xs font-semibold md:inline">{company}</span>
