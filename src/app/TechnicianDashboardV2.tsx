@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock3, MapPin, Phone, UserRound, Wrench } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Clock3, MapPin, Navigation, Phone, UserRound, Wrench } from 'lucide-react';
 import AdminShellV2, { type TechnicianSectionV2 } from './AdminShellV2';
 import { api, type UserProfile } from './api';
 import type { ServiceOrder } from './types';
@@ -13,6 +13,12 @@ const STATUS: Record<ServiceOrder['status'], { label: string; className: string 
 
 const dateLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const dateTimeLabel = (value: string) => new Date(value).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function openNavigation(address: string) {
+  const destination = encodeURIComponent(address.trim());
+  if (!destination) return;
+  window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+}
 
 function Stat({ label, value, icon: Icon, detail }: { label: string; value: number; icon: typeof Wrench; detail: string }) {
   return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div><div className="rounded-xl bg-cyan-50 p-3 text-cyan-600"><Icon size={21} /></div></div></div>;
@@ -65,7 +71,7 @@ export default function TechnicianDashboardV2() {
 
     if (section === 'attendances') return <div className="p-4 sm:p-6 lg:p-8"><PageTitle title="Atendimentos" subtitle="Seu histórico de execução em campo." /><div className="mt-5 space-y-3">{attendances.map(a => <div key={a.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold">{a.order.id} · {a.order.client}</p><p className="mt-1 text-xs text-slate-500">{dateTimeLabel(a.startTime)} · {a.order.type}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{Math.round(a.durationSeconds / 60)} min</span></div><p className="mt-4 text-sm text-slate-600">{a.description || 'Sem descrição registrada.'}</p></div>)}{!attendances.length && <Empty text="Nenhum atendimento registrado." />}</div></div>;
 
-    if (section === 'agenda') return <div className="p-4 sm:p-6 lg:p-8"><PageTitle title="Minha Agenda" subtitle="Programação das suas ordens." /><div className="mt-5 space-y-3">{agenda.map(o => <div key={o.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start gap-4"><div className="rounded-xl bg-cyan-50 p-3 text-cyan-600"><CalendarDays size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-bold">{o.id} · {o.client}</p><span className="text-sm font-semibold text-slate-500">{dateLabel(o.date)}</span></div><p className="mt-1 text-sm text-slate-600">{o.type}</p><p className="mt-2 flex items-center gap-1 text-xs text-slate-500"><MapPin size={13}/>{o.address}</p></div></div></div>)}{!agenda.length && <Empty text="Agenda vazia." />}</div></div>;
+    if (section === 'agenda') return <div className="p-4 sm:p-6 lg:p-8"><PageTitle title="Minha Agenda" subtitle="Programação das suas ordens." /><div className="mt-5 space-y-3">{agenda.map(o => <div key={o.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start gap-4"><div className="rounded-xl bg-cyan-50 p-3 text-cyan-600"><CalendarDays size={20}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-bold">{o.id} · {o.client}</p><span className="text-sm font-semibold text-slate-500">{dateLabel(o.date)}</span></div><p className="mt-1 text-sm text-slate-600">{o.type}</p><div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500"><MapPin size={13}/><span className="min-w-0">{o.address}</span><NavigationButton address={o.address}/></div></div></div></div>)}{!agenda.length && <Empty text="Agenda vazia." />}</div></div>;
 
     return <div className="p-4 sm:p-6 lg:p-8"><PageTitle title="Meu Perfil" subtitle="Seus dados de acesso ao QTECNICO." /><div className="mt-5 max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-center gap-4"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-cyan-50 text-cyan-600"><UserRound size={26}/></div><div><p className="text-lg font-bold">{user?.name}</p><p className="text-sm text-slate-500">{user?.role}</p></div></div><div className="mt-6 grid gap-4 sm:grid-cols-2"><Info label="E-mail" value={user?.email || '—'} /><Info label="Telefone" value={user?.phone || '—'} /></div></div></div>;
   })();
@@ -78,4 +84,10 @@ function ClipboardListIcon({ size }: { size?: number }) { return <Wrench size={s
 function PageTitle({ title, subtitle }: { title: string; subtitle: string }) { return <div><p className="text-sm font-medium text-cyan-600">QTECNICO</p><h1 className="mt-1 text-3xl font-bold tracking-tight">{title}</h1><p className="mt-1 text-sm text-slate-500">{subtitle}</p></div>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">{text}</div>; }
 function Info({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-800">{value}</p></div>; }
-function OrderRow({ order }: { order: ServiceOrder }) { const s = STATUS[order.status]; return <div className="p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{order.id}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${s.className}`}>{s.label}</span></div><p className="mt-1 font-semibold text-slate-800">{order.client}</p><p className="mt-1 text-sm text-slate-500">{order.type} · {dateLabel(order.date)}</p><p className="mt-2 flex items-center gap-1 text-xs text-slate-500"><MapPin size={13}/>{order.address}</p></div><div className="flex shrink-0 items-center gap-2 text-sm text-slate-500"><Phone size={15}/>{order.phone}</div></div></div>; }
+function NavigationButton({ address }: { address: string }) {
+  return <button type="button" onClick={() => openNavigation(address)} disabled={!address?.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50" aria-label="Abrir navegação para o endereço" title="Abrir navegação">
+    <Navigation size={13} />
+    Navegar
+  </button>;
+}
+function OrderRow({ order }: { order: ServiceOrder }) { const s = STATUS[order.status]; return <div className="p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{order.id}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${s.className}`}>{s.label}</span></div><p className="mt-1 font-semibold text-slate-800">{order.client}</p><p className="mt-1 text-sm text-slate-500">{order.type} · {dateLabel(order.date)}</p><div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500"><MapPin size={13}/><span className="min-w-0">{order.address}</span><NavigationButton address={order.address}/></div></div><div className="flex shrink-0 items-center gap-2 text-sm text-slate-500"><Phone size={15}/>{order.phone}</div></div></div>; }
