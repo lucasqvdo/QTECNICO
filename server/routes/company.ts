@@ -11,6 +11,12 @@ async function getAccountId(userId: number) {
 
 const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 
+function isSafeLogoKey(key: string, accountId: number) {
+  if (!key) return true;
+  if (key.startsWith('data:') || key.startsWith('http')) return true;
+  return key.startsWith(`profiles/${accountId}/`);
+}
+
 router.get('/profile', requireAdmin, async (req, res) => {
   try {
     const accountId = await getAccountId(req.userId);
@@ -51,6 +57,7 @@ router.put('/profile', requireAdmin, async (req, res) => {
     };
 
     if (!data.tradeName && !data.legalName) return res.status(400).json({ error: 'Informe pelo menos a razão social ou o nome fantasia' });
+    if (!isSafeLogoKey(data.logoKey, accountId)) return res.status(400).json({ error: 'Logo inválida para esta conta' });
 
     const result = await pool.query(
       `INSERT INTO company_profiles
