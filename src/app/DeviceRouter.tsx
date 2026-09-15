@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import App from "./App";
-import AdminDashboard from "./AdminDashboard";
+import AdminDashboard from "./AdminDashboardV2";
 import { api } from "./api";
 
 export default function DeviceRouter() {
