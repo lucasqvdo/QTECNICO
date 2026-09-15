@@ -3,12 +3,12 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomInt } from 'crypto';
 import { pool } from '../db.js';
 import { createSession, revokeCurrentSession } from '../auth.js';
+import { requireAuth } from '../auth.js';
 import { authRateLimit, passwordResetRequestRateLimit, passwordResetConfirmRateLimit } from '../security.js';
 
 const router = Router();
 const MIN_PASSWORD_LENGTH = 8;
 let resetTableReady: Promise<void> | null = null;
-let companyProfileTableReady: Promise<void> | null = null;
 
 async function ensureResetTable() {
   if (!resetTableReady) {
@@ -26,40 +26,6 @@ async function ensureResetTable() {
     `).then(() => undefined).catch((error) => { resetTableReady = null; throw error; });
   }
   return resetTableReady;
-}
-
-async function ensureCompanyProfileTable() {
-  if (!companyProfileTableReady) {
-    companyProfileTableReady = pool.query(`
-      CREATE TABLE IF NOT EXISTS company_profiles (
-        id BIGSERIAL PRIMARY KEY,
-        account_id BIGINT NOT NULL UNIQUE REFERENCES accounts(id) ON DELETE CASCADE,
-        legal_name TEXT NOT NULL DEFAULT '',
-        trade_name TEXT NOT NULL DEFAULT '',
-        document TEXT NOT NULL DEFAULT '',
-        phone TEXT NOT NULL DEFAULT '',
-        email TEXT NOT NULL DEFAULT '',
-        whatsapp TEXT NOT NULL DEFAULT '',
-        website TEXT NOT NULL DEFAULT '',
-        postal_code TEXT NOT NULL DEFAULT '',
-        address TEXT NOT NULL DEFAULT '',
-        number TEXT NOT NULL DEFAULT '',
-        complement TEXT NOT NULL DEFAULT '',
-        neighborhood TEXT NOT NULL DEFAULT '',
-        city TEXT NOT NULL DEFAULT '',
-        state TEXT NOT NULL DEFAULT '',
-        logo_key TEXT,
-        description TEXT NOT NULL DEFAULT '',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
-      ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS logo_key TEXT;
-      ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
-      CREATE INDEX IF NOT EXISTS company_profiles_account_idx ON company_profiles(account_id);
-    `).then(() => undefined).catch((error) => { companyProfileTableReady = null; throw error; });
-  }
-  return companyProfileTableReady;
 }
 
 function hashResetCode(code: string) { return createHash('sha256').update(code).digest('hex'); }
@@ -128,15 +94,15 @@ router.post('/register', authRateLimit, async (req, res) => {
     `);
     const exists = await client.query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
     if (exists.rows.length > 0) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'E-mail já cadastrado' }); }
+    const accountResult = await client.query(`INSERT INTO accounts (owner_user_id, plan_key, subscription_status) VALUES (NULL, 'free', 'active') RETURNING id`);
+    const accountId = accountResult.rows[0].id;
     const hash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
-      `INSERT INTO users (name, role, phone, email, password_hash, is_admin) VALUES ($1, $2, $3, $4, $5, TRUE) RETURNING id, name, role, phone, email, photo_url, is_admin`,
-      [adminName, 'Administrador', company.phone || '', normalizedEmail, hash],
+      `INSERT INTO users (name, role, phone, email, password_hash, is_admin, account_id) VALUES ($1, $2, $3, $4, $5, TRUE, $6) RETURNING id, name, role, phone, email, photo_url, is_admin`,
+      [adminName, 'Administrador', company.phone || '', normalizedEmail, hash, accountId],
     );
     const user = userResult.rows[0];
-    const accountResult = await client.query(`INSERT INTO accounts (owner_user_id, plan_key, subscription_status) VALUES ($1, 'free', 'active') RETURNING id`, [user.id]);
-    const accountId = accountResult.rows[0].id;
-    await client.query('UPDATE users SET account_id = $1 WHERE id = $2', [accountId, user.id]);
+    await client.query('UPDATE accounts SET owner_user_id = $1 WHERE id = $2', [user.id, accountId]);
     await client.query(
       `INSERT INTO company_profiles (account_id, legal_name, trade_name, document, phone, email, whatsapp, website, postal_code, address, number, complement, neighborhood, city, state, description)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
@@ -150,7 +116,7 @@ router.post('/register', authRateLimit, async (req, res) => {
   } finally { client.release(); }
 });
 
-router.post('/logout', async (req, res) => {
+router.post('/logout', requireAuth, async (req, res) => {
   try { await revokeCurrentSession(req, res); return res.json({ success: true }); }
   catch (error) { console.error('Logout error:', error); res.clearCookie('qtecnico_session', { path: '/' }); res.clearCookie('qtecnico_csrf', { path: '/' }); return res.json({ success: true }); }
 });
