@@ -36,7 +36,11 @@ router.get('/summary', requireAdmin, async (req, res) => {
           COUNT(*) FILTER (WHERE o.status = 'cancelled')::int AS cancelled,
           COALESCE(SUM(o.client_value), 0)::numeric AS revenue,
           COALESCE((SELECT SUM(p.amount) FROM order_payments p WHERE p.account_id = $1 AND p.status = 'paid' ${startDate ? 'AND p.date >= $2' : ''}), 0)::numeric AS paid,
-          COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.account_id = $1 ${startDate ? 'AND e.created_at >= $2' : ''}), 0)::numeric AS costs
+          COALESCE((SELECT SUM(e.amount)
+                    FROM expenses e
+                    LEFT JOIN orders eo ON eo.id = e.order_id AND eo.account_id = e.account_id
+                    WHERE e.account_id = $1
+                      ${startDate ? 'AND (e.order_id IS NULL OR eo.created_at >= $2)' : ''}), 0)::numeric AS costs
         FROM orders o
         WHERE o.account_id = $1 ${dateClause}
       `, dateParams),
