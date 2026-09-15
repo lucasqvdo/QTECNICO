@@ -11,35 +11,14 @@ export interface Client {
   email: string;
 }
 
-export interface Expense {
-  id: string;
-  label: string;
-  amount: number;
-}
+export interface Expense { id: string; label: string; amount: number; }
+export interface AttendancePhoto { id: string; key: string; dataUrl: string; name: string; }
+export interface Attendance { id: string; startTime: string; endTime: string; durationSeconds: number; description: string; photos: AttendancePhoto[]; }
+export interface Payment { id: string; orderId: string; label: string; amount: number; date: string; status: "paid" | "pending"; }
 
-export interface AttendancePhoto {
-  id: string;
-  key: string;
-  dataUrl: string;
+export interface AssignedTechnician {
+  id: number;
   name: string;
-}
-
-export interface Attendance {
-  id: string;
-  startTime: string;
-  endTime: string;
-  durationSeconds: number;
-  description: string;
-  photos: AttendancePhoto[];
-}
-
-export interface Payment {
-  id: string;
-  orderId: string;
-  label: string;
-  amount: number;
-  date: string;
-  status: "paid" | "pending";
 }
 
 export interface ServiceOrder {
@@ -64,4 +43,6 @@ export interface ServiceOrder {
   clientSignatureKey?: string;
   assignedTechnicianId?: number | null;
   assignedTechnicianName?: string | null;
+  assignedTechnicians?: AssignedTechnician[];
+  assignedTechnicianIds?: number[];
 }
