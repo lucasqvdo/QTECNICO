@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { enforceOrderLimit, assertPhotoLimit, getAccountContext } from '../planLimits.js';
-import { getDownloadUrl } from '../storage.js';
+import { deleteImageByKey, getDownloadUrl } from '../storage.js';
 
 const router = Router();
 
@@ -16,6 +16,20 @@ function isSafeStorageKey(key: unknown, accountId: number, folder: string) {
   if (typeof key !== 'string' || !key) return false;
   if (key.startsWith('data:') || key.startsWith('http')) return true;
   return key.startsWith(`${folder}/${accountId}/`);
+}
+
+async function cleanupStorageKeyIfUnreferenced(key: string | null | undefined, accountId: number) {
+  if (!key || key.startsWith('data:') || key.startsWith('http')) return;
+  const [photoRef, signatureRef] = await Promise.all([
+    pool.query('SELECT 1 FROM attendance_photos WHERE account_id=$1 AND data_url=$2 LIMIT 1', [accountId, key]),
+    pool.query('SELECT 1 FROM orders WHERE account_id=$1 AND client_signature=$2 LIMIT 1', [accountId, key]),
+  ]);
+  if (!photoRef.rows[0] && !signatureRef.rows[0]) await deleteImageByKey(key);
+}
+
+async function cleanupStorageKeysIfUnreferenced(keys: Iterable<string>, accountId: number) {
+  const uniqueKeys = [...new Set([...keys].filter(Boolean))];
+  await Promise.all(uniqueKeys.map((key) => cleanupStorageKeyIfUnreferenced(key, accountId)));
 }
 
 async function fetchOrders(userId: number) {
@@ -157,16 +171,18 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (isAdmin && has('payments')) {
       await db.query('DELETE FROM order_payments WHERE order_id = $1 AND account_id = $2', [id, accountId]);
       for (const p of (o.payments || [])) {
-        await db.query('INSERT INTO order_payments (id, account_id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [p.id || `pay-${Date.now()}-${Math.random()}`, accountId, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
+        await db.query('INSERT INTO order_payments (id, account_id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [p.id || `pay-${Date.now()}-${Math.random()}`, accountId, id, p.label || 'Pagamento', p.date, p.status || 'pending']);
       }
     }
 
+    let replacedPhotoKeys = new Set<string>();
     if (has('attendances')) {
       const existingPhotosRes = await db.query(
         `SELECT p.data_url FROM attendance_photos p JOIN attendances a ON a.id = p.attendance_id WHERE a.order_id = $1 AND p.account_id = $2 AND a.account_id = $2`,
         [id, accountId]
       );
-      const existingPhotoKeys = new Set(existingPhotosRes.rows.map((r: any) => r.data_url));
+      const existingPhotoKeys = new Set<string>(existingPhotosRes.rows.map((r: any) => r.data_url).filter(Boolean));
+      replacedPhotoKeys = existingPhotoKeys;
 
       for (const a of (o.attendances || [])) {
         for (const p of (a.photos || [])) {
@@ -194,6 +210,16 @@ router.put('/:id', requireAuth, async (req, res) => {
     }
 
     await db.query('COMMIT');
+
+    if (has('attendances')) {
+      const newPhotoKeys = new Set<string>();
+      for (const a of (o.attendances || [])) for (const p of (a.photos || [])) if (p.key) newPhotoKeys.add(p.key);
+      await cleanupStorageKeysIfUnreferenced([...replacedPhotoKeys].filter((key) => !newPhotoKeys.has(key)), accountId);
+    }
+    if (existing.client_signature && existing.client_signature !== clientSignature) {
+      await cleanupStorageKeyIfUnreferenced(existing.client_signature, accountId);
+    }
+
     const orders = await fetchOrders(userId);
     res.json(orders.find((x: any) => x.id === id));
   } catch (e: any) {
@@ -239,8 +265,11 @@ router.delete('/:orderId/attendances/:attendanceId/photos/:photoId', requireAuth
     const { orderId, attendanceId, photoId } = req.params;
     const orderRes = await pool.query(`SELECT id FROM orders WHERE id=$1 AND account_id=$2 AND ${isAdmin ? 'TRUE' : '(user_id=$3 OR assigned_technician_id=$3)'}`, isAdmin ? [orderId, accountId] : [orderId, accountId, req.userId]);
     if (!orderRes.rows[0]) return res.status(404).json({ error: 'Ordem não encontrada' });
+    const photoRes = await pool.query('SELECT data_url FROM attendance_photos WHERE id=$1 AND attendance_id=$2 AND account_id=$3', [photoId, attendanceId, accountId]);
+    if (!photoRes.rows[0]) return res.status(404).json({ error: 'Foto não encontrada' });
     const result = await pool.query('DELETE FROM attendance_photos WHERE id=$1 AND attendance_id=$2 AND account_id=$3', [photoId, attendanceId, accountId]);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Foto não encontrada' });
+    await cleanupStorageKeyIfUnreferenced(photoRes.rows[0].data_url, accountId);
     res.json({ success: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao remover foto' }); }
 });
@@ -248,8 +277,24 @@ router.delete('/:orderId/attendances/:attendanceId/photos/:photoId', requireAuth
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { accountId, isAdmin } = await getAccessContext(req.userId);
-    const result = await pool.query(`DELETE FROM orders WHERE id = $1 AND account_id=$2 AND ${isAdmin ? 'TRUE' : 'user_id=$3'}`, isAdmin ? [req.params.id, accountId] : [req.params.id, accountId, req.userId]);
+    if (!isAdmin) return res.status(403).json({ error: 'Somente administradores podem excluir ordens' });
+
+    const orderId = req.params.id;
+    const signatureRes = await pool.query('SELECT client_signature FROM orders WHERE id=$1 AND account_id=$2', [orderId, accountId]);
+    if (!signatureRes.rows[0]) return res.status(404).json({ error: 'Ordem não encontrada' });
+    const photoRes = await pool.query(
+      `SELECT p.data_url FROM attendance_photos p JOIN attendances a ON a.id=p.attendance_id WHERE a.order_id=$1 AND a.account_id=$2 AND p.account_id=$2`,
+      [orderId, accountId]
+    );
+
+    const result = await pool.query('DELETE FROM orders WHERE id = $1 AND account_id=$2', [orderId, accountId]);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+    const keys = new Set<string>();
+    if (signatureRes.rows[0].client_signature) keys.add(signatureRes.rows[0].client_signature);
+    for (const row of photoRes.rows) if (row.data_url) keys.add(row.data_url);
+    await cleanupStorageKeysIfUnreferenced(keys, accountId);
+
     res.json({ success: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao deletar ordem' }); }
 });
