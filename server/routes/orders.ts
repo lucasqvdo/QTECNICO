@@ -75,48 +75,115 @@ router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
 router.put('/:id', requireAuth, async (req, res) => {
   const userId = req.userId;
   const { id } = req.params;
-  const o = req.body;
+  const o = req.body || {};
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(o, key);
+  const db = await pool.connect();
+
   try {
     const { accountId, isAdmin } = await getAccessContext(userId);
-    const existingRes = await pool.query(`SELECT o.* FROM orders o WHERE o.id = $1 AND o.account_id = $2 AND ${isAdmin ? 'TRUE' : '(o.user_id = $3 OR o.assigned_technician_id = $3)'}`, isAdmin ? [id, accountId] : [id, accountId, userId]);
+    await db.query('BEGIN');
+
+    const existingRes = await db.query(
+      `SELECT o.* FROM orders o WHERE o.id = $1 AND o.account_id = $2 AND ${isAdmin ? 'TRUE' : '(o.user_id = $3 OR o.assigned_technician_id = $3)'} FOR UPDATE`,
+      isAdmin ? [id, accountId] : [id, accountId, userId]
+    );
     const existing = existingRes.rows[0];
-    if (!existing) return res.status(404).json({ error: 'Ordem não encontrada' });
-    if (isAdmin && o.clientId != null) {
-      const client = await pool.query('SELECT id FROM clients WHERE id=$1 AND account_id=$2', [o.clientId, accountId]);
-      if (!client.rows[0]) return res.status(400).json({ error: 'Cliente não pertence à conta' });
+    if (!existing) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ error: 'Ordem não encontrada' });
     }
-    if (isAdmin && o.assignedTechnicianId != null) {
-      const tech = await pool.query('SELECT id, name FROM users WHERE id=$1 AND account_id=$2', [o.assignedTechnicianId, accountId]);
-      if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
+
+    if (isAdmin && has('clientId') && o.clientId != null) {
+      const client = await db.query('SELECT id FROM clients WHERE id=$1 AND account_id=$2', [o.clientId, accountId]);
+      if (!client.rows[0]) {
+        await db.query('ROLLBACK');
+        return res.status(400).json({ error: 'Cliente não pertence à conta' });
+      }
+    }
+
+    if (isAdmin && has('assignedTechnicianId') && o.assignedTechnicianId != null) {
+      const tech = await db.query('SELECT id, name FROM users WHERE id=$1 AND account_id=$2', [o.assignedTechnicianId, accountId]);
+      if (!tech.rows[0]) {
+        await db.query('ROLLBACK');
+        return res.status(400).json({ error: 'Técnico não pertence à conta' });
+      }
       o.assignedTechnicianName = tech.rows[0].name;
     }
-    const clientValue = isAdmin ? o.clientValue : existing.client_value;
-    const paymentStatus = isAdmin ? o.paymentStatus : existing.payment_status;
-    const paidDate = isAdmin ? (o.paidDate || null) : existing.paid_date;
-    const paidAmount = isAdmin ? (o.paidAmount ?? null) : existing.paid_amount;
-    const clientSignature = o.clientSignatureKey ?? existing.client_signature;
-    const assignedTechnicianId = isAdmin ? (o.assignedTechnicianId ?? null) : existing.assigned_technician_id;
-    const assignedTechnicianName = isAdmin ? (o.assignedTechnicianName ?? null) : existing.assigned_technician_name;
-    await pool.query(`UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6, date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12, paid_amount=$13, client_signature=$14, assigned_technician_id=$15, assigned_technician_name=$16 WHERE id=$17 AND account_id=$18`, [o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status, o.date, o.priority, o.description || '', clientValue, paymentStatus, paidDate, paidAmount, clientSignature, assignedTechnicianId, assignedTechnicianName, id, accountId]);
+
+    // Administrators may edit all order fields. Technicians may only change
+    // operational fields; protected customer/financial/assignment fields are
+    // always taken from the database, even if a client sends them in the body.
+    const clientId = isAdmin && has('clientId') ? (o.clientId ?? null) : existing.client_id;
+    const clientName = isAdmin && has('client') ? (o.client ?? '') : existing.client_name;
+    const address = isAdmin && has('address') ? (o.address ?? '') : existing.address;
+    const phone = isAdmin && has('phone') ? (o.phone ?? '') : existing.phone;
+    const type = isAdmin && has('type') ? (o.type ?? '') : existing.type;
+    const status = has('status') ? (o.status ?? existing.status) : existing.status;
+    const date = isAdmin && has('date') ? o.date : existing.date;
+    const priority = isAdmin && has('priority') ? o.priority : existing.priority;
+    const description = has('description') ? (o.description ?? '') : existing.description;
+    const clientValue = isAdmin && has('clientValue') ? (o.clientValue ?? 0) : existing.client_value;
+    const paymentStatus = isAdmin && has('paymentStatus') ? (o.paymentStatus ?? 'pending') : existing.payment_status;
+    const paidDate = isAdmin && has('paidDate') ? (o.paidDate || null) : existing.paid_date;
+    const paidAmount = isAdmin && has('paidAmount') ? (o.paidAmount ?? null) : existing.paid_amount;
+    const clientSignature = has('clientSignatureKey') ? (o.clientSignatureKey ?? null) : existing.client_signature;
+    const assignedTechnicianId = isAdmin && has('assignedTechnicianId') ? (o.assignedTechnicianId ?? null) : existing.assigned_technician_id;
+    const assignedTechnicianName = isAdmin && has('assignedTechnicianId') ? (o.assignedTechnicianName ?? null) : existing.assigned_technician_name;
+
+    await db.query(
+      `UPDATE orders SET client_id=$1, client_name=$2, address=$3, phone=$4, type=$5, status=$6, date=$7, priority=$8, description=$9, client_value=$10, payment_status=$11, paid_date=$12, paid_amount=$13, client_signature=$14, assigned_technician_id=$15, assigned_technician_name=$16 WHERE id=$17 AND account_id=$18`,
+      [clientId, clientName, address, phone, type, status, date, priority, description, clientValue, paymentStatus, paidDate, paidAmount, clientSignature, assignedTechnicianId, assignedTechnicianName, id, accountId]
+    );
+
     const ctx = await getAccountContext(userId);
-    if (ctx) assertPhotoLimit(ctx.plan, o.attendances || []);
-    if (isAdmin) {
-      await pool.query('DELETE FROM expenses WHERE order_id = $1 AND account_id = $2', [id, accountId]);
-      for (const e of (o.expenses || [])) await pool.query('INSERT INTO expenses (id, account_id, order_id, label, amount) VALUES ($1,$2,$3,$4,$5)', [e.id || `${Date.now()}-${Math.random()}`, accountId, id, e.label, e.amount]);
-      await pool.query('DELETE FROM order_payments WHERE order_id = $1 AND account_id = $2', [id, accountId]);
-      for (const p of (o.payments || [])) await pool.query('INSERT INTO order_payments (id, account_id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [p.id || `pay-${Date.now()}-${Math.random()}`, accountId, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
+    if (has('attendances') && ctx) assertPhotoLimit(ctx.plan, o.attendances || []);
+
+    // Related collections are replaced only when the caller explicitly sends
+    // that collection. Partial updates therefore cannot erase unrelated data.
+    if (isAdmin && has('expenses')) {
+      await db.query('DELETE FROM expenses WHERE order_id = $1 AND account_id = $2', [id, accountId]);
+      for (const e of (o.expenses || [])) {
+        await db.query('INSERT INTO expenses (id, account_id, order_id, label, amount) VALUES ($1,$2,$3,$4,$5)', [e.id || `${Date.now()}-${Math.random()}`, accountId, id, e.label, e.amount]);
+      }
     }
-    await pool.query('DELETE FROM attendances WHERE order_id = $1 AND account_id = $2', [id, accountId]);
-    for (const a of (o.attendances || [])) {
-      const attendanceId = a.id || `${Date.now()}-${Math.random()}`;
-      await pool.query(`INSERT INTO attendances (id, account_id, order_id, start_time, end_time, duration_seconds, description) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [attendanceId, accountId, id, a.startTime, a.endTime, a.durationSeconds, a.description || '']);
-      for (const p of (a.photos || [])) if (p.key) await pool.query('INSERT INTO attendance_photos (id, account_id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4,$5)', [p.id || `${Date.now()}-${Math.random()}`, accountId, attendanceId, p.key, p.name || '']);
+
+    if (isAdmin && has('payments')) {
+      await db.query('DELETE FROM order_payments WHERE order_id = $1 AND account_id = $2', [id, accountId]);
+      for (const p of (o.payments || [])) {
+        await db.query('INSERT INTO order_payments (id, account_id, order_id, label, amount, date, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [p.id || `pay-${Date.now()}-${Math.random()}`, accountId, id, p.label || 'Pagamento', p.amount, p.date, p.status || 'pending']);
+      }
     }
+
+    if (has('attendances')) {
+      // Keep attendance/photo replacement atomic with the order update. The
+      // existing UI sends the complete attendance list when it intentionally
+      // edits/deletes attendance history; unrelated updates omit this field.
+      await db.query('DELETE FROM attendances WHERE order_id = $1 AND account_id = $2', [id, accountId]);
+      for (const a of (o.attendances || [])) {
+        const attendanceId = a.id || `${Date.now()}-${Math.random()}`;
+        await db.query(
+          `INSERT INTO attendances (id, account_id, order_id, start_time, end_time, duration_seconds, description) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [attendanceId, accountId, id, a.startTime, a.endTime, a.durationSeconds, a.description || '']
+        );
+        for (const p of (a.photos || [])) if (p.key) {
+          await db.query(
+            'INSERT INTO attendance_photos (id, account_id, attendance_id, data_url, name) VALUES ($1,$2,$3,$4,$5)',
+            [p.id || `${Date.now()}-${Math.random()}`, accountId, attendanceId, p.key, p.name || '']
+          );
+        }
+      }
+    }
+
+    await db.query('COMMIT');
     const orders = await fetchOrders(userId);
     res.json(orders.find((x: any) => x.id === id));
   } catch (e: any) {
+    try { await db.query('ROLLBACK'); } catch {}
     if (e?.code === 'PLAN_LIMIT_PHOTOS') return res.status(e.status || 402).json({ error: e.message, code: e.code });
-    console.error(e); res.status(500).json({ error: 'Erro ao atualizar ordem' });
+    console.error(e);
+    res.status(500).json({ error: 'Erro ao atualizar ordem' });
+  } finally {
+    db.release();
   }
 });
 
