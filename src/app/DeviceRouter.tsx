@@ -1,59 +1,52 @@
 import { useEffect, useState } from "react";
 import App from "./App";
 import AdminDashboard from "./AdminDashboardV2";
+import TechnicianDashboard from "./TechnicianDashboardV2";
 import { api } from "./api";
 
 export default function DeviceRouter() {
-  // Start from the normal application instead of a blocking splash screen.
-  // Authentication is resolved in the background; this prevents a slow,
-  // cached, offline or interrupted /users/me request from trapping the user
-  // on the blue loading screen on tablets and desktop browsers.
-  const [adminAllowed, setAdminAllowed] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [workspace, setWorkspace] = useState<'admin' | 'technician' | 'app'>('app');
 
   useEffect(() => {
     let mounted = true;
     let timeoutId: number | undefined;
     let settled = false;
 
-    const finish = (admin: boolean) => {
+    const finish = (target: 'admin' | 'technician' | 'app') => {
       if (!mounted || settled) return;
       settled = true;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-      setAdminAllowed(admin);
-      setShowAdmin(admin);
+      setWorkspace(target);
     };
 
     const checkAuth = async () => {
       try {
         const user = await api.getMe();
         if (!mounted) return;
-
         if (user.isAdmin) {
           try {
             await api.getAdminAccess();
-            finish(true);
+            finish('admin');
           } catch {
-            finish(false);
+            finish('technician');
           }
         } else {
-          finish(false);
+          finish('technician');
         }
       } catch {
-        finish(false);
+        finish('app');
       }
     };
 
-    // Never block the application waiting for authentication.
-    timeoutId = window.setTimeout(() => finish(false), 5000);
+    timeoutId = window.setTimeout(() => finish('app'), 5000);
     void checkAuth();
 
     const handleAuthenticated = () => {
       if (!mounted) return;
       settled = false;
-      setShowAdmin(false);
+      setWorkspace('app');
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(() => finish(false), 5000);
+      timeoutId = window.setTimeout(() => finish('app'), 5000);
       void checkAuth();
     };
 
@@ -61,8 +54,7 @@ export default function DeviceRouter() {
       if (!mounted) return;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       settled = true;
-      setAdminAllowed(false);
-      setShowAdmin(false);
+      setWorkspace('app');
     };
 
     window.addEventListener("qtecnico-authenticated", handleAuthenticated);
@@ -76,6 +68,7 @@ export default function DeviceRouter() {
     };
   }, []);
 
-  if (showAdmin && adminAllowed) return <AdminDashboard />;
+  if (workspace === 'admin') return <AdminDashboard />;
+  if (workspace === 'technician') return <TechnicianDashboard />;
   return <App />;
 }
