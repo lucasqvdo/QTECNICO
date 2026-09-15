@@ -106,9 +106,6 @@ router.delete('/admin/team/:id', requireAdmin, async (req, res) => {
     if (!target.rows[0]) return res.status(404).json({ error: 'Usuário não encontrado na conta administrativa' });
     if (target.rows[0].is_admin) return res.status(400).json({ error: 'Remova o privilégio administrativo antes de excluir um administrador' });
 
-    // Never allow deletion of a technician who owns business history. PostgreSQL
-    // may reject the DELETE because these legacy FKs are RESTRICT; returning a
-    // deterministic conflict is safer than presenting it as an internal error.
     const refs = await pool.query(`
       SELECT
         (SELECT COUNT(*) FROM orders WHERE user_id = $1 AND account_id = $2) AS orders,
@@ -120,17 +117,21 @@ router.delete('/admin/team/:id', requireAdmin, async (req, res) => {
       return res.status(409).json({ error: 'Este técnico possui histórico operacional e não pode ser excluído. Desative o acesso em vez de remover a conta.', orders: orderCount, clients: clientCount });
     }
 
-    await pool.query('BEGIN');
+    const client = await pool.connect();
     try {
-      await pool.query('DELETE FROM auth_sessions WHERE user_id = $1', [id]);
-      await pool.query('DELETE FROM webauthn_challenges WHERE user_id = $1', [id]);
-      await pool.query('DELETE FROM webauthn_credentials WHERE user_id = $1', [id]);
-      await pool.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]).catch(() => undefined);
-      await pool.query('DELETE FROM users WHERE id = $1 AND account_id = $2 AND is_admin = FALSE', [id, accountId]);
-      await pool.query('COMMIT');
+      await client.query('BEGIN');
+      await client.query('DELETE FROM auth_sessions WHERE user_id = $1', [id]);
+      await client.query('DELETE FROM webauthn_challenges WHERE user_id = $1', [id]);
+      await client.query('DELETE FROM webauthn_credentials WHERE user_id = $1', [id]);
+      await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]).catch(() => undefined);
+      const deleted = await client.query('DELETE FROM users WHERE id = $1 AND account_id = $2 AND is_admin = FALSE', [id, accountId]);
+      if (deleted.rowCount !== 1) throw new Error('Falha ao excluir o técnico');
+      await client.query('COMMIT');
     } catch (error) {
-      await pool.query('ROLLBACK');
+      await client.query('ROLLBACK');
       throw error;
+    } finally {
+      client.release();
     }
     res.json({ success: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao remover técnico' }); }
