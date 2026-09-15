@@ -1,0 +1,6 @@
+/* Desktop admin shell overrides. */
+@media (min-width: 1024px) {
+  .qtecnico-admin-content {
+    transition: margin-left 200ms ease;
+  }
+}
