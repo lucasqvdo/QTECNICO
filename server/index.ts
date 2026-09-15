@@ -10,6 +10,7 @@ import clientsRouter from './routes/clients.js';
 import usersRouter from './routes/users.js';
 import uploadsRouter from './routes/uploads.js';
 import webauthnRouter from './routes/webauthn.js';
+import dashboardRouter from './routes/dashboard.js';
 
 import { existsSync } from 'fs';
 
@@ -27,6 +28,7 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/auth/webauthn', webauthnRouter);
+app.use('/api/dashboard', dashboardRouter);
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.path.startsWith('/api')) {
     if (error?.type === 'entity.parse.failed') {
