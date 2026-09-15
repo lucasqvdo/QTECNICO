@@ -4,9 +4,6 @@ const { Pool } = pkg;
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
-  // 30 s: conexões ociosas são devolvidas ao pool após esse intervalo.
-  // Provedores gerenciados (Supabase, Neon, Render) encerram conexões inativas
-  // após poucos minutos — manter 0 (infinito) enche o pool de conexões mortas.
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 });
@@ -15,35 +12,14 @@ pool.on('error', (err) => {
   console.error('❌ Pool error:', err.message);
 });
 
-// Reconcilia estruturas que precisam existir antes das rotas serem registradas.
-// CREATE TABLE IF NOT EXISTS não altera tabelas já criadas, portanto instalações
-// existentes também precisam ter suas colunas/constraints reconciliadas.
 async function reconcileWebAuthnSchema() {
-  const tableCheck = await pool.query(`
-    SELECT to_regclass('public.webauthn_challenges') AS table_name
-  `);
-
+  const tableCheck = await pool.query(`SELECT to_regclass('public.webauthn_challenges') AS table_name`);
   if (tableCheck.rows[0]?.table_name) {
-    await pool.query(`
-      ALTER TABLE webauthn_challenges
-        ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'authentication'
-    `);
-
-    await pool.query(`
-      ALTER TABLE webauthn_challenges
-        DROP CONSTRAINT IF EXISTS webauthn_challenges_type_check
-    `);
-
-    await pool.query(`
-      ALTER TABLE webauthn_challenges
-        ADD CONSTRAINT webauthn_challenges_type_check
-        CHECK (type IN ('registration', 'authentication'))
-    `);
+    await pool.query(`ALTER TABLE webauthn_challenges ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'authentication'`);
+    await pool.query(`ALTER TABLE webauthn_challenges DROP CONSTRAINT IF EXISTS webauthn_challenges_type_check`);
+    await pool.query(`ALTER TABLE webauthn_challenges ADD CONSTRAINT webauthn_challenges_type_check CHECK (type IN ('registration', 'authentication'))`);
   }
 
-  // Discoverable passkeys (usernameless authentication) do not know the user
-  // before the authenticator returns a credential. Keep those short-lived
-  // challenges separate from the legacy user-keyed challenge table.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS webauthn_auth_challenges (
       challenge TEXT PRIMARY KEY,
@@ -51,19 +27,9 @@ async function reconcileWebAuthnSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS webauthn_auth_challenges_expires_at_idx ON webauthn_auth_challenges (expires_at)`);
+  await pool.query(`DELETE FROM webauthn_auth_challenges WHERE expires_at <= NOW()`);
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS webauthn_auth_challenges_expires_at_idx
-      ON webauthn_auth_challenges (expires_at)
-  `);
-
-  await pool.query(`
-    DELETE FROM webauthn_auth_challenges
-    WHERE expires_at <= NOW()
-  `);
-
-  // The rate limiter is persisted in Postgres so limits survive restarts and
-  // are shared across multiple application instances.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS auth_rate_limits (
       key TEXT PRIMARY KEY,
@@ -72,12 +38,7 @@ async function reconcileWebAuthnSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS auth_rate_limits_reset_at_idx
-      ON auth_rate_limits (reset_at)
-  `);
-
+  await pool.query(`CREATE INDEX IF NOT EXISTS auth_rate_limits_reset_at_idx ON auth_rate_limits (reset_at)`);
   console.log('✅ Schema WebAuthn/rate-limit reconciliado');
 }
 
@@ -88,9 +49,6 @@ async function reconcileMultiTenantSchema() {
     return;
   }
 
-  // Explicit tenant ownership is kept on every business table. This removes
-  // the previous implicit dependency on users.account_id and lets every query
-  // enforce the tenant boundary directly.
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS account_id INTEGER`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS account_id INTEGER`);
   await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS account_id INTEGER`);
@@ -98,7 +56,6 @@ async function reconcileMultiTenantSchema() {
   await pool.query(`ALTER TABLE attendance_photos ADD COLUMN IF NOT EXISTS account_id INTEGER`);
   await pool.query(`ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS account_id INTEGER`);
 
-  // Backfill existing production data without changing any business values.
   await pool.query(`UPDATE clients c SET account_id = u.account_id FROM users u WHERE c.user_id = u.id AND c.account_id IS NULL`);
   await pool.query(`UPDATE orders o SET account_id = u.account_id FROM users u WHERE o.user_id = u.id AND o.account_id IS NULL`);
   await pool.query(`UPDATE expenses e SET account_id = o.account_id FROM orders o WHERE e.order_id = o.id AND e.account_id IS NULL`);
@@ -127,27 +84,14 @@ async function reconcileMultiTenantSchema() {
   await pool.query(`ALTER TABLE attendance_photos ALTER COLUMN account_id SET NOT NULL`);
   await pool.query(`ALTER TABLE order_payments ALTER COLUMN account_id SET NOT NULL`);
 
-  // Constraints are created idempotently because this reconciliation runs on every boot.
   await pool.query(`
     DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_account_fk') THEN
-        ALTER TABLE clients ADD CONSTRAINT clients_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_account_fk') THEN
-        ALTER TABLE orders ADD CONSTRAINT orders_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_account_fk') THEN
-        ALTER TABLE expenses ADD CONSTRAINT expenses_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendances_account_fk') THEN
-        ALTER TABLE attendances ADD CONSTRAINT attendances_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_photos_account_fk') THEN
-        ALTER TABLE attendance_photos ADD CONSTRAINT attendance_photos_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'order_payments_account_fk') THEN
-        ALTER TABLE order_payments ADD CONSTRAINT order_payments_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
-      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_account_fk') THEN ALTER TABLE clients ADD CONSTRAINT clients_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_account_fk') THEN ALTER TABLE orders ADD CONSTRAINT orders_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_account_fk') THEN ALTER TABLE expenses ADD CONSTRAINT expenses_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendances_account_fk') THEN ALTER TABLE attendances ADD CONSTRAINT attendances_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_photos_account_fk') THEN ALTER TABLE attendance_photos ADD CONSTRAINT attendance_photos_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'order_payments_account_fk') THEN ALTER TABLE order_payments ADD CONSTRAINT order_payments_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
     END $$;
   `);
 
@@ -157,6 +101,19 @@ async function reconcileMultiTenantSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS attendances_account_idx ON attendances(account_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS attendance_photos_account_idx ON attendance_photos(account_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS order_payments_account_idx ON order_payments(account_id)`);
+
+  // Login is case-insensitive everywhere in the API. Enforce the same invariant
+  // at the database level so concurrent requests cannot create A@B.COM and a@b.com.
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = 'users_lower_email_unique_idx'
+      ) THEN
+        CREATE UNIQUE INDEX users_lower_email_unique_idx ON users (LOWER(email));
+      END IF;
+    END $$;
+  `);
 
   console.log('✅ Schema multiempresa reconciliado');
 }
