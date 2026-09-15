@@ -12,6 +12,12 @@ async function getAccessContext(userId: number) {
   return { accountId: rows[0].account_id as number, isAdmin: Boolean(rows[0].is_admin) };
 }
 
+function isSafeStorageKey(key: unknown, accountId: number, folder: string) {
+  if (typeof key !== 'string' || !key) return false;
+  if (key.startsWith('data:') || key.startsWith('http')) return true;
+  return key.startsWith(`${folder}/${accountId}/`);
+}
+
 async function fetchOrders(userId: number) {
   const { accountId, isAdmin } = await getAccessContext(userId);
   const ordersRes = await pool.query(
@@ -65,6 +71,7 @@ router.post('/', requireAuth, enforceOrderLimit(), async (req, res) => {
       if (!tech.rows[0]) return res.status(400).json({ error: 'Técnico não pertence à conta' });
       o.assignedTechnicianName = tech.rows[0].name;
     }
+    if (o.clientSignatureKey != null && !isSafeStorageKey(o.clientSignatureKey, accountId, 'signatures')) return res.status(400).json({ error: 'Assinatura inválida para esta conta' });
     await pool.query(`INSERT INTO orders (id, account_id, user_id, client_id, client_name, address, phone, type, status, date, priority, description, client_value, payment_status, paid_date, paid_amount, client_signature, assigned_technician_id, assigned_technician_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, [id, accountId, userId, o.clientId, o.client, o.address || '', o.phone || '', o.type || '', o.status || 'pending', o.date, o.priority || 'medium', o.description || '', o.clientValue || 0, o.paymentStatus || 'pending', o.paidDate || null, o.paidAmount ?? null, o.clientSignatureKey ?? null, o.assignedTechnicianId ?? null, o.assignedTechnicianName ?? null]);
     for (const e of (o.expenses || [])) await pool.query('INSERT INTO expenses (id, account_id, order_id, label, amount) VALUES ($1,$2,$3,$4,$5)', [e.id || `${Date.now()}-${Math.random()}`, accountId, id, e.label, e.amount]);
     const orders = await fetchOrders(userId);
@@ -110,9 +117,11 @@ router.put('/:id', requireAuth, async (req, res) => {
       o.assignedTechnicianName = tech.rows[0].name;
     }
 
-    // Administrators may edit all order fields. Technicians may only change
-    // operational fields; protected customer/financial/assignment fields are
-    // always taken from the database, even if a client sends them in the body.
+    if (isAdmin && has('clientSignatureKey') && o.clientSignatureKey != null && !isSafeStorageKey(o.clientSignatureKey, accountId, 'signatures')) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ error: 'Assinatura inválida para esta conta' });
+    }
+
     const clientId = isAdmin && has('clientId') ? (o.clientId ?? null) : existing.client_id;
     const clientName = isAdmin && has('client') ? (o.client ?? '') : existing.client_name;
     const address = isAdmin && has('address') ? (o.address ?? '') : existing.address;
@@ -126,7 +135,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     const paymentStatus = isAdmin && has('paymentStatus') ? (o.paymentStatus ?? 'pending') : existing.payment_status;
     const paidDate = isAdmin && has('paidDate') ? (o.paidDate || null) : existing.paid_date;
     const paidAmount = isAdmin && has('paidAmount') ? (o.paidAmount ?? null) : existing.paid_amount;
-    const clientSignature = has('clientSignatureKey') ? (o.clientSignatureKey ?? null) : existing.client_signature;
+    const clientSignature = isAdmin && has('clientSignatureKey') ? (o.clientSignatureKey ?? null) : existing.client_signature;
     const assignedTechnicianId = isAdmin && has('assignedTechnicianId') ? (o.assignedTechnicianId ?? null) : existing.assigned_technician_id;
     const assignedTechnicianName = isAdmin && has('assignedTechnicianId') ? (o.assignedTechnicianName ?? null) : existing.assigned_technician_name;
 
@@ -138,8 +147,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     const ctx = await getAccountContext(userId);
     if (has('attendances') && ctx) assertPhotoLimit(ctx.plan, o.attendances || []);
 
-    // Related collections are replaced only when the caller explicitly sends
-    // that collection. Partial updates therefore cannot erase unrelated data.
     if (isAdmin && has('expenses')) {
       await db.query('DELETE FROM expenses WHERE order_id = $1 AND account_id = $2', [id, accountId]);
       for (const e of (o.expenses || [])) {
@@ -155,9 +162,21 @@ router.put('/:id', requireAuth, async (req, res) => {
     }
 
     if (has('attendances')) {
-      // Keep attendance/photo replacement atomic with the order update. The
-      // existing UI sends the complete attendance list when it intentionally
-      // edits/deletes attendance history; unrelated updates omit this field.
+      const existingPhotosRes = await db.query(
+        `SELECT p.data_url FROM attendance_photos p JOIN attendances a ON a.id = p.attendance_id WHERE a.order_id = $1 AND p.account_id = $2 AND a.account_id = $2`,
+        [id, accountId]
+      );
+      const existingPhotoKeys = new Set(existingPhotosRes.rows.map((r: any) => r.data_url));
+
+      for (const a of (o.attendances || [])) {
+        for (const p of (a.photos || [])) {
+          if (p.key && !existingPhotoKeys.has(p.key) && !isSafeStorageKey(p.key, accountId, 'attendances')) {
+            await db.query('ROLLBACK');
+            return res.status(400).json({ error: 'Foto de atendimento inválida para esta conta' });
+          }
+        }
+      }
+
       await db.query('DELETE FROM attendances WHERE order_id = $1 AND account_id = $2', [id, accountId]);
       for (const a of (o.attendances || [])) {
         const attendanceId = a.id || `${Date.now()}-${Math.random()}`;
@@ -198,6 +217,7 @@ router.post('/:orderId/attendances/:attendanceId/photos', requireAuth, async (re
     if (!orderRes.rows[0]) return res.status(404).json({ error: 'Ordem não encontrada' });
     const attRes = await pool.query('SELECT id FROM attendances WHERE id=$1 AND order_id=$2 AND account_id=$3', [attendanceId, orderId, accountId]);
     if (!attRes.rows[0]) return res.status(404).json({ error: 'Atendimento não encontrado' });
+    if (!isSafeStorageKey(key, accountId, 'attendances')) return res.status(400).json({ error: 'Foto inválida para esta conta' });
     const ctx = await getAccountContext(userId);
     if (ctx) {
       const photoCount = await pool.query('SELECT COUNT(*)::int AS count FROM attendance_photos WHERE account_id=$1 AND attendance_id=$2', [accountId, attendanceId]);
