@@ -134,10 +134,15 @@ router.post('/webhooks/asaas', async (req, res) => {
   const subscription = req.body?.subscription || null;
   if (!eventId) return res.status(400).json({ error: 'Evento Asaas sem id.' });
   try {
-    const duplicate = await pool.query(`SELECT 1 FROM subscription_events WHERE payload->>'asaasEventId'=$1 LIMIT 1`, [eventId]);
-    if (duplicate.rows[0]) return res.status(200).json({ received: true, duplicate: true });
     const providerPaymentId = typeof payment?.id === 'string' ? payment.id : null;
     const providerSubscriptionId = typeof payment?.subscription === 'string' ? payment.subscription : (typeof subscription?.id === 'string' ? subscription.id : null);
+    const externalReference = typeof payment?.externalReference === 'string' ? payment.externalReference : (typeof subscription?.externalReference === 'string' ? subscription.externalReference : '');
+    const accountMatch = externalReference.match(/^qtecnico:account:(\d+)(?::plan:[^:]+)?$/);
+    const referencedAccountId = accountMatch ? Number(accountMatch[1]) : null;
+
+    const duplicate = await pool.query(`SELECT subscription_id FROM subscription_events WHERE payload->>'asaasEventId'=$1 ORDER BY id DESC LIMIT 1`, [eventId]);
+    if (duplicate.rows[0]?.subscription_id) return res.status(200).json({ received: true, duplicate: true, processed: true });
+
     let subscriptionRow: any = null;
     if (providerSubscriptionId) {
       const result = await pool.query(`SELECT id,account_id,status FROM subscriptions WHERE provider='asaas' AND provider_subscription_id=$1 LIMIT 1`, [providerSubscriptionId]);
@@ -147,13 +152,35 @@ router.post('/webhooks/asaas', async (req, res) => {
       const result = await pool.query(`SELECT s.id,s.account_id,s.status FROM subscription_payments p JOIN subscriptions s ON s.id=p.subscription_id WHERE p.provider='asaas' AND p.provider_payment_id=$1 LIMIT 1`, [providerPaymentId]);
       subscriptionRow = result.rows[0] || null;
     }
-    if (subscriptionRow && providerPaymentId) {
-      await pool.query(`INSERT INTO subscription_payments (subscription_id,account_id,amount,currency,status,due_at,paid_at,refunded_at,provider,provider_payment_id,invoice_url,failure_reason,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'asaas',$9,$10,$11,$12::jsonb) ON CONFLICT (provider_payment_id) DO UPDATE SET amount=EXCLUDED.amount,status=EXCLUDED.status,due_at=EXCLUDED.due_at,paid_at=EXCLUDED.paid_at,refunded_at=EXCLUDED.refunded_at,invoice_url=EXCLUDED.invoice_url,failure_reason=EXCLUDED.failure_reason,metadata=EXCLUDED.metadata,updated_at=NOW()`, [subscriptionRow.id, subscriptionRow.account_id, Number(payment?.value || 0), payment?.currency || 'BRL', payment?.status || eventType, payment?.dueDate || null, payment?.paymentDate || payment?.confirmedDate || null, payment?.refundDate || null, providerPaymentId, payment?.invoiceUrl || null, payment?.failureReason || null, JSON.stringify({ asaasEventId: eventId, event: eventType, billingType: payment?.billingType || null, customer: payment?.customer || null, subscription: providerSubscriptionId })]);
-      if (eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') await pool.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1`, [subscriptionRow.id]);
-      else if (eventType === 'PAYMENT_OVERDUE') await pool.query(`UPDATE subscriptions SET status='past_due',updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','canceled')`, [subscriptionRow.id]);
+    if (!subscriptionRow && referencedAccountId) {
+      const result = await pool.query(`SELECT id,account_id,status FROM subscriptions WHERE account_id=$1 AND provider='asaas' ORDER BY created_at DESC LIMIT 1`, [referencedAccountId]);
+      subscriptionRow = result.rows[0] || null;
     }
-    if (subscriptionRow) await pool.query(`INSERT INTO subscription_events (account_id,subscription_id,actor_user_id,event_type,source,payload) VALUES ($1,$2,NULL,$3,'asaas_webhook',$4::jsonb)`, [subscriptionRow.account_id, subscriptionRow.id, eventType, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription })]);
-    return res.status(200).json({ received: true, processed: Boolean(subscriptionRow) });
+
+    if (!subscriptionRow) {
+      if (duplicate.rows[0]) {
+        await pool.query(`UPDATE subscription_events SET account_id=COALESCE(account_id,$1),payload=$2::jsonb WHERE payload->>'asaasEventId'=$3 AND subscription_id IS NULL`, [referencedAccountId, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription, pendingReason: 'subscription_not_found' }), eventId]);
+      } else {
+        await pool.query(`INSERT INTO subscription_events (account_id,subscription_id,actor_user_id,event_type,source,payload) VALUES ($1,NULL,NULL,$2,'asaas_webhook',$3::jsonb)`, [referencedAccountId, eventType, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription, pendingReason: 'subscription_not_found' })]);
+      }
+      console.warn('Asaas webhook deferred: subscription not found', { eventId, providerPaymentId, providerSubscriptionId, referencedAccountId, eventType });
+      return res.status(409).json({ received: true, processed: false, retry: true, reason: 'Subscription not found yet.' });
+    }
+
+    if (providerPaymentId) {
+      await pool.query(`INSERT INTO subscription_payments (subscription_id,account_id,amount,currency,status,due_at,paid_at,refunded_at,provider,provider_payment_id,invoice_url,failure_reason,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'asaas',$9,$10,$11,$12::jsonb) ON CONFLICT (provider_payment_id) DO UPDATE SET subscription_id=EXCLUDED.subscription_id,account_id=EXCLUDED.account_id,amount=EXCLUDED.amount,status=EXCLUDED.status,due_at=EXCLUDED.due_at,paid_at=EXCLUDED.paid_at,refunded_at=EXCLUDED.refunded_at,invoice_url=EXCLUDED.invoice_url,failure_reason=EXCLUDED.failure_reason,metadata=EXCLUDED.metadata,updated_at=NOW()`, [subscriptionRow.id, subscriptionRow.account_id, Number(payment?.value || 0), payment?.currency || 'BRL', payment?.status || eventType, payment?.dueDate || null, payment?.paymentDate || payment?.confirmedDate || null, payment?.refundDate || null, providerPaymentId, payment?.invoiceUrl || null, payment?.failureReason || null, JSON.stringify({ asaasEventId: eventId, event: eventType, billingType: payment?.billingType || null, customer: payment?.customer || null, subscription: providerSubscriptionId })]);
+    }
+
+    const pendingEvent = await pool.query(`SELECT id FROM subscription_events WHERE payload->>'asaasEventId'=$1 AND subscription_id IS NULL ORDER BY id DESC LIMIT 1`, [eventId]);
+    if (pendingEvent.rows[0]) {
+      await pool.query(`UPDATE subscription_events SET account_id=$1,subscription_id=$2,payload=$3::jsonb WHERE id=$4`, [subscriptionRow.account_id, subscriptionRow.id, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription, replayed: true }), pendingEvent.rows[0].id]);
+    } else {
+      await pool.query(`INSERT INTO subscription_events (account_id,subscription_id,actor_user_id,event_type,source,payload) VALUES ($1,$2,NULL,$3,'asaas_webhook',$4::jsonb)`, [subscriptionRow.account_id, subscriptionRow.id, eventType, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription })]);
+    }
+
+    if (eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') await pool.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1`, [subscriptionRow.id]);
+    else if (eventType === 'PAYMENT_OVERDUE') await pool.query(`UPDATE subscriptions SET status='past_due',updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','canceled')`, [subscriptionRow.id]);
+    return res.status(200).json({ received: true, processed: true });
   } catch (error) {
     console.error('Asaas webhook error:', error);
     return res.status(500).json({ error: 'Erro ao processar webhook Asaas.' });
