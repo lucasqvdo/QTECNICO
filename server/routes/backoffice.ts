@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireBackofficeAuth } from '../backofficeAuth.js';
+import { getAsaasStatus } from '../services/asaas.js';
 
 const router = Router();
 const allowedActions = new Set(['change_plan','activate','suspend','cancel','reactivate','extend_period','manual_payment']);
@@ -9,6 +10,15 @@ async function getAccount(accountId:number) {
   const result = await pool.query(`SELECT a.id,COALESCE(cp.trade_name,cp.legal_name,'Sem empresa') AS company,cp.legal_name,COALESCE(cp.document,'') AS document,COALESCE(cp.phone,'') AS phone,COALESCE(cp.email,u.email,'') AS billing_email,COALESCE(u.name,'') AS owner,COALESCE(u.email,'') AS email,a.plan_key AS legacy_plan,a.subscription_status AS legacy_status,a.current_period_end AS legacy_period_end,a.created_at,s.id AS subscription_id,s.plan_key AS subscription_plan,s.status AS subscription_status,s.amount AS subscription_amount,s.currency AS subscription_currency,s.billing_interval,s.trial_start_at,s.trial_end_at,s.current_period_start,s.current_period_end AS subscription_period_end,s.canceled_at,s.provider AS subscription_provider,s.provider_subscription_id,s.metadata AS subscription_metadata,sp.name AS plan_name FROM accounts a LEFT JOIN company_profiles cp ON cp.account_id=a.id LEFT JOIN users u ON u.id=a.owner_user_id LEFT JOIN LATERAL (SELECT * FROM subscriptions sx WHERE sx.account_id=a.id ORDER BY sx.created_at DESC LIMIT 1) s ON TRUE LEFT JOIN saas_plans sp ON sp.plan_key=COALESCE(s.plan_key,a.plan_key) WHERE a.id=$1`,[accountId]);
   return result.rows[0]||null;
 }
+
+router.get('/asaas-status',requireBackofficeAuth,async(_req,res)=>{
+  try {
+    res.json(await getAsaasStatus());
+  } catch(error) {
+    console.error('Asaas status error:',error);
+    res.status(502).json({error:error instanceof Error?error.message:'Não foi possível autenticar no Asaas Sandbox'});
+  }
+});
 
 router.get('/account/:id',requireBackofficeAuth,async(req,res)=>{
   const accountId=Number(req.params.id); if(!Number.isInteger(accountId)||accountId<=0) return res.status(400).json({error:'Conta inválida.'});
