@@ -1,0 +1,116 @@
+import { Check, ArrowRight, ShieldCheck, Smartphone, BarChart3, Headphones, Users, Zap } from 'lucide-react';
+
+const plans = [
+  {
+    name: 'Essencial',
+    price: '49,90',
+    description: 'Para profissionais e pequenas operações que querem organizar os chamados.',
+    features: [
+      'Até 2 usuários',
+      'Ordens de serviço',
+      'Clientes e histórico',
+      'Agenda de atendimentos',
+      'Registro de fotos e evidências',
+      'Acesso pelo celular, tablet e computador',
+    ],
+  },
+  {
+    name: 'Profissional',
+    price: '99,90',
+    popular: true,
+    description: 'Para equipes que precisam controlar a operação e acompanhar resultados.',
+    features: [
+      'Até 5 usuários',
+      'Tudo do plano Essencial',
+      'Gestão de equipe e técnicos',
+      'Atendimentos e checklists',
+      'Controle financeiro por ordem',
+      'Dashboard operacional',
+      'Relatórios e indicadores',
+    ],
+  },
+  {
+    name: 'Empresarial',
+    price: '199,90',
+    description: 'Para empresas de assistência técnica com uma operação maior e visão gerencial.',
+    features: [
+      'Até 15 usuários',
+      'Tudo do plano Profissional',
+      'Dashboard gerencial completo',
+      'Indicadores financeiros e operacionais',
+      'Gestão avançada de clientes',
+      'Agenda e distribuição de serviços',
+      'Suporte prioritário',
+    ],
+  },
+];
+
+const benefits = [
+  [Smartphone, 'Trabalhe de qualquer lugar', 'A operação acompanha o técnico no celular, tablet ou computador.'],
+  [BarChart3, 'Tenha visão da operação', 'Acompanhe ordens, produtividade, clientes e resultados em um só lugar.'],
+  [ShieldCheck, 'Mais controle e rastreabilidade', 'Registre serviços, evidências, custos e histórico de cada atendimento.'],
+  [Users, 'Organize sua equipe', 'Distribua serviços e mantenha cada profissional conectado à sua operação.'],
+  [Zap, 'Menos trabalho manual', 'Centralize informações e reduza planilhas, mensagens espalhadas e retrabalho.'],
+  [Headphones, 'Suporte quando precisar', 'Conte com atendimento de acordo com o plano contratado.'],
+];
+
+export default function PricingPage() {
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/90 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
+          <a href="/" className="text-xl font-black tracking-tight">Q<span className="text-cyan-400">Técnico</span></a>
+          <a href="/" className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10">Entrar</a>
+        </div>
+      </header>
+
+      <main>
+        <section className="relative overflow-hidden px-5 pb-16 pt-16 sm:px-8 sm:pt-24">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.13),transparent_42%)]" />
+          <div className="relative mx-auto max-w-4xl text-center">
+            <p className="mb-4 text-sm font-bold uppercase tracking-[0.22em] text-cyan-400">Planos QTECNICO</p>
+            <h1 className="text-4xl font-black tracking-tight sm:text-6xl">Gestão técnica que acompanha o crescimento da sua empresa.</h1>
+            <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-slate-400 sm:text-lg">Escolha o plano de acordo com o tamanho da sua operação. Comece com o essencial e evolua quando sua equipe precisar.</p>
+          </div>
+        </section>
+
+        <section className="mx-auto grid max-w-7xl gap-5 px-5 pb-20 sm:px-8 lg:grid-cols-3">
+          {plans.map((plan) => (
+            <article key={plan.name} className={`relative flex flex-col rounded-3xl border p-6 ${plan.popular ? 'border-cyan-400/60 bg-cyan-400/[0.07] shadow-2xl shadow-cyan-950/30' : 'border-white/10 bg-white/[0.04]'}`}>
+              {plan.popular && <div className="absolute -top-3 left-6 rounded-full bg-cyan-400 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-slate-950">Mais completo</div>}
+              <div>
+                <h2 className="text-2xl font-bold">{plan.name}</h2>
+                <p className="mt-2 min-h-14 text-sm leading-6 text-slate-400">{plan.description}</p>
+                <div className="mt-5 flex items-end gap-1"><span className="text-sm text-slate-400">R$</span><span className="text-4xl font-black">{plan.price}</span><span className="pb-1 text-sm text-slate-400">/mês</span></div>
+              </div>
+              <div className="my-6 h-px bg-white/10" />
+              <ul className="flex-1 space-y-3">
+                {plan.features.map((feature) => <li key={feature} className="flex gap-3 text-sm text-slate-200"><Check size={18} className="mt-0.5 shrink-0 text-cyan-400" />{feature}</li>)}
+              </ul>
+              <a href="/" className={`mt-7 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${plan.popular ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300' : 'border border-white/15 text-white hover:bg-white/10'}`}>Começar agora <ArrowRight size={17} /></a>
+            </article>
+          ))}
+        </section>
+
+        <section className="border-y border-white/10 bg-slate-900/60 px-5 py-20 sm:px-8">
+          <div className="mx-auto max-w-7xl">
+            <div className="mx-auto mb-12 max-w-2xl text-center"><p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-400">Benefícios</p><h2 className="mt-3 text-3xl font-black sm:text-4xl">Mais controle. Menos retrabalho.</h2><p className="mt-4 text-slate-400">O QTECNICO foi pensado para conectar gestão, equipe e execução em campo.</p></div>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {benefits.map(([Icon, title, description]) => { const I = Icon as typeof Check; return <div key={title as string} className="rounded-2xl border border-white/10 bg-white/[0.03] p-6"><I size={22} className="text-cyan-400" /><h3 className="mt-4 font-bold">{title as string}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{description as string}</p></div>; })}
+            </div>
+          </div>
+        </section>
+
+        <section className="px-5 py-20 text-center sm:px-8">
+          <div className="mx-auto max-w-3xl rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.06] p-8 sm:p-12">
+            <h2 className="text-3xl font-black">Pronto para organizar sua operação?</h2>
+            <p className="mx-auto mt-4 max-w-xl text-slate-400">Escolha o plano que faz sentido para sua equipe e tenha uma operação técnica mais organizada.</p>
+            <a href="/" className="mt-7 inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-6 py-3 font-bold text-slate-950 transition hover:bg-cyan-300">Acessar QTECNICO <ArrowRight size={18} /></a>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-white/10 px-5 py-8 text-center text-xs text-slate-500 sm:px-8">QTECNICO · Gestão de serviços técnicos</footer>
+    </div>
+  );
+}
