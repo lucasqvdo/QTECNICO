@@ -1,29 +1,20 @@
-import React from 'react';
-import { Building2, CreditCard, LogOut, ShieldCheck, Users, WalletCards } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Building2, CreditCard, LogOut, ShieldCheck, Users, WalletCards, RefreshCw } from 'lucide-react';
 
-const accounts = [
-  { company: 'Contas cadastradas', detail: 'Base SaaS', plan: 'Todos', status: 'Monitorar', value: '—' },
-];
+type Account={id:number;company:string;document:string;owner:string;email:string;plan:string;status:string;periodEnd:string|null;createdAt:string};
+type Summary={metrics:{total:number;active:number;trials:number;overdue:number;cancelled:number;mrr:number};plans:{plan_key:string;count:number}[]};
+const money=(v:number)=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const cookie=(name:string)=>document.cookie.split('; ').find(x=>x.startsWith(name+'='))?.split('=')[1]||'';
 
-export default function BackofficeDashboard() {
-  const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => undefined);
-    window.location.href = '/backoffice/login';
-  };
-
-  return <main className="min-h-screen bg-slate-950 text-white">
-    <header className="border-b border-slate-800 bg-slate-900/80 px-6 py-4">
-      <div className="mx-auto flex max-w-7xl items-center justify-between">
-        <div className="flex items-center gap-3"><div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-400"><ShieldCheck size={22}/></div><div><p className="text-xs uppercase tracking-[0.2em] text-cyan-400">QTECNICO</p><h1 className="font-semibold">Backoffice SaaS</h1></div></div>
-        <button onClick={logout} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300"><LogOut size={16}/> Sair</button>
-      </div>
-    </header>
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-8"><h2 className="text-3xl font-semibold">Gestão de contas</h2><p className="mt-1 text-slate-400">Visão administrativa das empresas, assinaturas e recebimentos.</p></div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[['Contas ativas','—',Building2],['Em teste','—',Users],['MRR','R$ 0,00',CreditCard],['A receber','R$ 0,00',WalletCards]].map(([label,value,Icon]) => <div key={String(label)} className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><Icon className="mb-4 text-cyan-400" size={21}/><p className="text-sm text-slate-400">{String(label)}</p><strong className="mt-1 block text-2xl">{String(value)}</strong></div>)}
-      </div>
-      <section className="mt-8 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-5"><h3 className="font-semibold">Contas</h3><p className="text-sm text-slate-500">A listagem dinâmica de empresas e pagamentos será ligada à API de assinaturas na próxima etapa.</p></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-950/60 text-slate-400"><tr>{['Conta','Detalhe','Plano','Status','Valor'].map(h=><th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr></thead><tbody>{accounts.map(a=><tr key={a.company} className="border-t border-slate-800"><td className="px-5 py-4">{a.company}</td><td className="px-5 py-4 text-slate-400">{a.detail}</td><td className="px-5 py-4">{a.plan}</td><td className="px-5 py-4">{a.status}</td><td className="px-5 py-4">{a.value}</td></tr>)}</tbody></table></div></section>
-    </div>
-  </main>;
+export default function BackofficeDashboard(){
+ const [summary,setSummary]=useState<Summary|null>(null); const [accounts,setAccounts]=useState<Account[]>([]); const [loading,setLoading]=useState(true); const [error,setError]=useState('');
+ const load=async()=>{setLoading(true);setError('');try{const [s,a]=await Promise.all([fetch('/api/dashboard/backoffice-summary',{credentials:'include'}),fetch('/api/dashboard/backoffice-accounts',{credentials:'include'})]);if(s.status===401||a.status===401){window.location.href='/backoffice/login';return;}const sd=await s.json();const ad=await a.json();if(!s.ok)throw new Error(sd.error||'Falha ao carregar o Backoffice');if(!a.ok)throw new Error(ad.error||'Falha ao carregar as contas');setSummary(sd);setAccounts(ad.accounts||[]);}catch(e){setError(e instanceof Error?e.message:'Erro ao carregar');}finally{setLoading(false);}};
+ useEffect(()=>{void load();},[]);
+ const logout=async()=>{await fetch('/api/auth/logout',{method:'POST',credentials:'include',headers:{'X-CSRF-Token':cookie('qtecnico_csrf')}}).catch(()=>{});window.location.href='/backoffice/login';};
+ if(loading)return <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center"><div className="text-center"><RefreshCw className="mx-auto mb-3 animate-spin text-cyan-400"/><p>Carregando Backoffice...</p></div></main>;
+ return <main className="min-h-screen bg-slate-950 text-white"><header className="border-b border-slate-800 bg-slate-900/90 px-5 py-4"><div className="mx-auto flex max-w-7xl items-center justify-between"><div className="flex items-center gap-3"><div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-400"><ShieldCheck size={22}/></div><div><p className="text-xs uppercase tracking-[0.2em] text-cyan-400">QTECNICO</p><h1 className="font-semibold">Backoffice SaaS</h1></div></div><div className="flex gap-2"><button onClick={()=>void load()} className="rounded-lg border border-slate-700 p-2 text-slate-300" title="Atualizar"><RefreshCw size={17}/></button><button onClick={logout} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300"><LogOut size={16}/> Sair</button></div></div></header>
+ <div className="mx-auto max-w-7xl p-5 sm:p-6"><div className="mb-7"><h2 className="text-3xl font-semibold">Gestão de contas</h2><p className="mt-1 text-slate-400">Visão macro da base SaaS, planos e situação das assinaturas.</p></div>{error&&<div className="mb-5 rounded-xl border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">{error}</div>}
+ <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">{[[Building2,'Contas',summary?.metrics.total||0],[Users,'Ativas',summary?.metrics.active||0],[Users,'Em teste',summary?.metrics.trials||0],[CreditCard,'MRR',money(summary?.metrics.mrr||0)],[WalletCards,'Inadimplentes',summary?.metrics.overdue||0]].map(([Icon,label,value])=><div key={String(label)} className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><Icon className="mb-4 text-cyan-400" size={21}/><p className="text-sm text-slate-400">{String(label)}</p><strong className="mt-1 block text-2xl">{String(value)}</strong></div>)}</div>
+ <section className="mt-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-5"><h3 className="font-semibold">Contas SaaS</h3><p className="text-sm text-slate-500">Plano e status atuais da assinatura por empresa.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-slate-950/60 text-slate-400"><tr>{['Empresa','Responsável','Plano','Status','Vencimento','Cadastro'].map(h=><th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr></thead><tbody>{accounts.map(a=><tr key={a.id} className="border-t border-slate-800"><td className="px-5 py-4"><div className="font-medium">{a.company}</div><div className="text-xs text-slate-500">{a.document||'Documento não informado'}</div></td><td className="px-5 py-4"><div>{a.owner}</div><div className="text-xs text-slate-500">{a.email}</div></td><td className="px-5 py-4 uppercase text-cyan-300">{a.plan}</td><td className="px-5 py-4">{a.status}</td><td className="px-5 py-4">{a.periodEnd?new Date(a.periodEnd).toLocaleDateString('pt-BR'):'—'}</td><td className="px-5 py-4">{new Date(a.createdAt).toLocaleDateString('pt-BR')}</td></tr>)}</tbody></table></div>{accounts.length===0&&<div className="p-8 text-center text-slate-500">Nenhuma conta encontrada.</div>}</section>
+ <div className="mt-6 rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4 text-sm text-amber-200"><strong>Billing:</strong> a base atual ainda não possui uma tabela própria de pagamentos SaaS. A próxima etapa será criar assinaturas e pagamentos separados de <code>order_payments</code>.</div></div></main>;
 }
