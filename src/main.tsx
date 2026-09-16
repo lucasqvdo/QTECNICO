@@ -2,7 +2,6 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import DeviceRouter from "./app/DeviceRouter";
 import PricingPage from "./app/PricingPage";
-import BillingPage from "./app/BillingPage";
 import BackofficeLogin from "./app/BackofficeLogin";
 import BackofficeDashboard from "./app/BackofficeDashboard";
 import BackofficeBilling from "./app/BackofficeBilling";
@@ -21,5 +20,5 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error:
 
 const root = createRoot(document.getElementById("root")!);
 const path = window.location.pathname;
-const page = path === "/planos" ? <PricingPage /> : path === "/assinatura" ? <BillingPage /> : path === "/backoffice/login" ? <BackofficeLogin /> : path === "/backoffice/billing" ? <BackofficeBilling /> : path === "/backoffice/account" ? <BackofficeAccount /> : path === "/backoffice" ? <BackofficeDashboard /> : <DeviceRouter />;
+const page = path === "/planos" ? <PricingPage /> : path === "/backoffice/login" ? <BackofficeLogin /> : path === "/backoffice/billing" ? <BackofficeBilling /> : path === "/backoffice/account" ? <BackofficeAccount /> : path === "/backoffice" ? <BackofficeDashboard /> : <DeviceRouter />;
 root.render(<AppErrorBoundary>{page}</AppErrorBoundary>);
