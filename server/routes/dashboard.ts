@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
-import { requireAdmin, requireAuth } from '../auth.js';
+import { requireAdmin } from '../auth.js';
+import { createBackofficeSession, requireBackofficeAuth, revokeBackofficeSession, isPlatformAdmin } from '../backofficeAuth.js';
 
 const router = Router();
 
@@ -11,16 +13,24 @@ function getStartDate(days: unknown) {
   const date = new Date(); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - Number(value)); return date.toISOString();
 }
 
-async function requirePlatformAdmin(req: any, res: any, next: any) {
-  const configured = (process.env.BACKOFFICE_ADMIN_EMAILS || '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
-  if (!configured.length) return res.status(503).json({ error: 'Backoffice não configurado: defina BACKOFFICE_ADMIN_EMAILS.' });
+router.post('/backoffice-login', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!email || !password) return res.status(400).json({ error: 'Informe e-mail e senha.' });
   try {
-    const result = await pool.query('SELECT email FROM users WHERE id = $1 AND is_admin = TRUE', [req.userId]);
-    const email = String(result.rows[0]?.email || '').toLowerCase();
-    if (!email || !configured.includes(email)) return res.status(403).json({ error: 'Acesso restrito ao Backoffice QTECNICO' });
-    next();
-  } catch (error) { console.error('Backoffice authorization error:', error); res.status(500).json({ error: 'Erro ao validar acesso' }); }
-}
+    const result = await pool.query('SELECT id, name, email, password_hash, is_admin FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1', [email]);
+    const user = result.rows[0];
+    if (!user || !user.is_admin || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ error: 'Credenciais de Backoffice inválidas.' });
+    if (!(await isPlatformAdmin(user.id))) return res.status(403).json({ error: 'Este usuário não possui acesso ao Backoffice QTECNICO.' });
+    await createBackofficeSession(user.id, res);
+    return res.json({ user: { id: user.id, name: user.name, email: user.email } });
+  } catch (error) { console.error('Backoffice login error:', error); return res.status(500).json({ error: 'Erro interno ao autenticar o Backoffice.' }); }
+});
+
+router.post('/backoffice-logout', requireBackofficeAuth, async (req, res) => {
+  try { await revokeBackofficeSession(req, res); return res.json({ success: true }); }
+  catch (error) { console.error('Backoffice logout error:', error); return res.json({ success: true }); }
+});
 
 router.get('/summary', requireAdmin, async (req, res) => {
   try {
@@ -43,7 +53,7 @@ router.get('/summary', requireAdmin, async (req, res) => {
   } catch (error) { console.error('Dashboard summary error:',error); res.status(500).json({error:'Erro ao carregar indicadores administrativos'}); }
 });
 
-router.get('/backoffice-summary', requireAuth, requirePlatformAdmin, async (_req,res)=>{
+router.get('/backoffice-summary', requireBackofficeAuth, async (_req,res)=>{
   try {
     const result=await pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE subscription_status='active')::int AS active, COUNT(*) FILTER (WHERE subscription_status IN ('trial','trialing'))::int AS trials, COUNT(*) FILTER (WHERE subscription_status IN ('past_due','overdue','unpaid'))::int AS overdue, COUNT(*) FILTER (WHERE subscription_status IN ('cancelled','canceled'))::int AS cancelled FROM accounts`);
     const plans=await pool.query(`SELECT plan_key,COUNT(*)::int AS count FROM accounts GROUP BY plan_key ORDER BY count DESC`);
@@ -52,7 +62,7 @@ router.get('/backoffice-summary', requireAuth, requirePlatformAdmin, async (_req
   } catch(error){console.error(error);res.status(500).json({error:'Não foi possível carregar o Backoffice'});}
 });
 
-router.get('/backoffice-accounts', requireAuth, requirePlatformAdmin, async (_req,res)=>{
+router.get('/backoffice-accounts', requireBackofficeAuth, async (_req,res)=>{
   try {
     const result=await pool.query(`SELECT a.id,COALESCE(cp.trade_name,cp.legal_name,'Sem empresa') AS company,COALESCE(cp.document,'') AS document,COALESCE(u.name,'') AS owner,COALESCE(u.email,'') AS email,a.plan_key AS plan,a.subscription_status AS status,a.current_period_end AS period_end,a.created_at FROM accounts a LEFT JOIN company_profiles cp ON cp.account_id=a.id LEFT JOIN users u ON u.id=a.owner_user_id ORDER BY a.created_at DESC`);
     res.json({accounts:result.rows.map((r)=>({id:r.id,company:r.company,document:r.document,owner:r.owner,email:r.email,plan:r.plan,status:r.status,periodEnd:r.period_end,createdAt:r.created_at}))});
