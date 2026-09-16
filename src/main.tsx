@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import DeviceRouter from "./app/DeviceRouter";
+import PricingPage from "./app/PricingPage";
 import "./styles/index.css";
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error: Error | null }> {
@@ -36,8 +37,10 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error:
   }
 }
 
-createRoot(document.getElementById("root")!).render(
+const root = createRoot(document.getElementById("root")!);
+
+root.render(
   <AppErrorBoundary>
-    <DeviceRouter />
+    {window.location.pathname === "/planos" ? <PricingPage /> : <DeviceRouter />}
   </AppErrorBoundary>
 );
