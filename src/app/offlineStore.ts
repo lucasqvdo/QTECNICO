@@ -1,20 +1,24 @@
-import type { ServiceOrder } from './types';
+import type { ServiceOrder, AttendancePhoto } from './types';
 import type { UserProfile } from './api';
 
 const DB_NAME = 'qtecnico-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const ORDERS = 'orders';
 const META = 'meta';
 const QUEUE = 'sync_queue';
 
 type QueueItem = {
   id: string;
-  type: 'order_update';
+  type: 'order_update' | 'attendance_photo' | 'signature_upload';
   orderId: string;
+  attendanceId?: string;
   order: ServiceOrder;
   createdAt: number;
   updatedAt: number;
   attempts: number;
+  file?: Blob;
+  fileName?: string;
+  photoId?: string;
   lastError?: string;
 };
 
@@ -82,6 +86,24 @@ export async function queueOrderUpdate(order: ServiceOrder): Promise<void> {
   await txDone(tx);
 }
 
+export async function queueAttendancePhoto(order: ServiceOrder, attendanceId: string, photoId: string, file: Blob, fileName: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction([QUEUE, ORDERS], 'readwrite');
+  const now = Date.now();
+  tx.objectStore(QUEUE).put({ id: `photo:${order.id}:${photoId}`, type: 'attendance_photo', orderId: order.id, attendanceId, photoId, order, file, fileName, createdAt: now, updatedAt: now, attempts: 0 } satisfies QueueItem);
+  tx.objectStore(ORDERS).put(order);
+  await txDone(tx);
+}
+
+export async function queueSignatureUpload(order: ServiceOrder, file: Blob, fileName: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction([QUEUE, ORDERS], 'readwrite');
+  const now = Date.now();
+  tx.objectStore(QUEUE).put({ id: `signature:${order.id}`, type: 'signature_upload', orderId: order.id, order, file, fileName, createdAt: now, updatedAt: now, attempts: 0 } satisfies QueueItem);
+  tx.objectStore(ORDERS).put(order);
+  await txDone(tx);
+}
+
 export async function getQueue(): Promise<QueueItem[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -120,3 +142,13 @@ export async function getLastServerSync(): Promise<number | null> {
     tx.onerror = () => reject(tx.error || new Error('Não foi possível ler o estado offline.'));
   });
 }
+
+export async function markServerSync(): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(META, 'readwrite');
+  tx.objectStore(META).put({ key: 'last_server_sync', value: Date.now() });
+  await txDone(tx);
+}
+
+export type { QueueItem };
+export type { AttendancePhoto };
