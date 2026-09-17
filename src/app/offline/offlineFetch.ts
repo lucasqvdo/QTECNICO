@@ -46,6 +46,19 @@ async function handleOfflineAttendancePhoto(orderId: string, attendanceId: strin
   await putOffline(OFFLINE_STORES.syncQueue, { id: `attendance-photo:${localPhoto.id}`, entity: "attendance_photo", entityId: localPhoto.id, action: "associate", payload: { orderId, attendanceId, photoId: localPhoto.id, tempKey: key, name }, status: "pending", createdAt: new Date().toISOString() });
   return new Response(JSON.stringify({ photo: localPhoto }), { status: 200, headers: { "Content-Type": "application/json", "X-QTecnico-Offline": "true" } });
 }
+async function reconcileOfflineSignature(tempKey: string, remoteKey: string, remoteUrl: string, localDataUrl?: string) {
+  const queue = await getAllOffline<any>(OFFLINE_STORES.syncQueue);
+  const pendingOrders = queue.filter((item) => item?.status === "pending" && item?.entity === "service_order" && item?.action === "update");
+  for (const item of pendingOrders) {
+    const payload = item.payload && typeof item.payload === "object" ? { ...item.payload } : {};
+    const matchesKey = payload.clientSignatureKey === tempKey;
+    const matchesUrl = localDataUrl && payload.clientSignature === localDataUrl;
+    if (!matchesKey && !matchesUrl) continue;
+    if (matchesKey) payload.clientSignatureKey = remoteKey;
+    if (matchesUrl || matchesKey) payload.clientSignature = remoteUrl;
+    await putOffline(OFFLINE_STORES.syncQueue, { ...item, payload });
+  }
+}
 async function flushPhotoQueue() {
   if (!navigator.onLine) return;
   const queue = await getAllOffline<any>(OFFLINE_STORES.syncQueue);
@@ -56,7 +69,9 @@ async function flushPhotoQueue() {
       const form = new FormData(); form.append("file", photo.blob, photo.name); form.append("folder", photo.folder);
       const headers: Record<string, string> = {}; const csrf = getCsrfToken(); if (csrf) headers["X-CSRF-Token"] = csrf;
       const response = await originalFetch(UPLOADS_PATH, { method: "POST", credentials: "include", headers, body: form }); if (!response.ok) break;
-      const saved = await response.json(); await putOffline(OFFLINE_STORES.photos, { ...photo, remoteKey: saved.key, remoteUrl: saved.url, status: "uploaded" }); await deleteOffline(OFFLINE_STORES.syncQueue, item.id);
+      const saved = await response.json(); await putOffline(OFFLINE_STORES.photos, { ...photo, remoteKey: saved.key, remoteUrl: saved.url, status: "uploaded" });
+      if (photo.folder === "signatures" && saved.key && saved.url) await reconcileOfflineSignature(photo.key, saved.key, saved.url, photo.dataUrl);
+      await deleteOffline(OFFLINE_STORES.syncQueue, item.id);
     } catch { break; }
   }
   const refreshedQueue = await getAllOffline<any>(OFFLINE_STORES.syncQueue);
