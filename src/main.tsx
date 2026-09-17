@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import DeviceRouter from "./app/DeviceRouter";
 import "./styles/index.css";
@@ -36,8 +36,21 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error:
   }
 }
 
+function OfflineFoundation() {
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
+      console.warn("QTecnico: falha ao registrar service worker", error);
+    });
+  }, []);
+
+  return null;
+}
+
 createRoot(document.getElementById("root")!).render(
   <AppErrorBoundary>
+    <OfflineFoundation />
     <DeviceRouter />
   </AppErrorBoundary>
 );
