@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { BarChart3, Building2, CalendarDays, ClipboardList, Clock3, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
 import { api } from './api';
+import ConnectivityStatus from './components/ConnectivityStatus';
 
 export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company';
 export type TechnicianSectionV2 = 'home' | 'orders' | 'attendances' | 'agenda' | 'profile';
@@ -104,6 +105,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
             <div><b className="text-sm">{current?.[2] || 'QTECNICO'}</b><p className="hidden text-xs text-slate-500 sm:block">{current?.[3]}</p></div>
           </div>
           <div className="flex items-center gap-2">
+            <ConnectivityStatus />
             <span className="hidden max-w-48 truncate rounded-full border px-3 py-1 text-xs font-semibold md:inline">{company}</span>
             <button className="hidden rounded-xl border p-2 lg:block" onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'} title={collapsed ? 'Expandir menu' : 'Recolher menu'}>
               {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
