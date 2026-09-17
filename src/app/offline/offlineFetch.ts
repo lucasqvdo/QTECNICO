@@ -18,8 +18,13 @@ function getCsrfToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+async function cacheOrder(order: any) {
+  if (!order || order.id == null) return;
+  await putOffline(OFFLINE_STORES.serviceOrders, { ...order, id: String(order.id), updatedAt: new Date().toISOString() });
+}
+
 async function cacheOrders(orders: any[]) {
-  await Promise.all(orders.filter((order) => order && order.id != null).map((order) => putOffline(OFFLINE_STORES.serviceOrders, { ...order, id: String(order.id), updatedAt: new Date().toISOString() })));
+  await Promise.all(orders.filter((order) => order && order.id != null).map(cacheOrder));
 }
 
 async function cachedOrders() {
@@ -51,6 +56,13 @@ async function handleOfflineOrderList() {
   return new Response(JSON.stringify(orders), { status: 200, headers: { "Content-Type": "application/json", "X-QTecnico-Offline": "true" } });
 }
 
+async function handleOfflineOrderDetail(orderId: string) {
+  const order = await getOffline<any>(OFFLINE_STORES.serviceOrders, orderId);
+  if (!order) throw new Error("Esta OS ainda não foi armazenada no dispositivo.");
+  const { updatedAt: _updatedAt, ...cleanOrder } = order;
+  return new Response(JSON.stringify(cleanOrder), { status: 200, headers: { "Content-Type": "application/json", "X-QTecnico-Offline": "true" } });
+}
+
 async function handleOfflineClients() {
   const clients = await getAllOffline<any>(OFFLINE_STORES.clients);
   return new Response(JSON.stringify(clients), { status: 200, headers: { "Content-Type": "application/json", "X-QTecnico-Offline": "true" } });
@@ -75,7 +87,7 @@ async function flushOrderQueue() {
       const response = await originalFetch(`/api/orders/${encodeURIComponent(String(item.entityId))}`, { method: "PUT", credentials: "include", headers, body: JSON.stringify(item.payload ?? {}) });
       if (!response.ok) break;
       const saved = await response.clone().json().catch(() => null);
-      if (saved?.id != null) await putOffline(OFFLINE_STORES.serviceOrders, { ...saved, id: String(saved.id), updatedAt: new Date().toISOString(), offlinePendingSync: false });
+      if (saved?.id != null) await cacheOrder({ ...saved, offlinePendingSync: false });
       await deleteOffline(OFFLINE_STORES.syncQueue, item.id);
     } catch {
       break;
@@ -97,10 +109,12 @@ export function installOfflineFetchLayer() {
         if (response.ok) {
           const data = await response.clone().json().catch(() => null);
           if (Array.isArray(data)) await cacheOrders(data);
+          else if (data?.id != null && orderMatch[1]) await cacheOrder(data);
         }
         return response;
       } catch (error) {
         if (!isNetworkFailure(error)) throw error;
+        if (orderMatch[1]) return handleOfflineOrderDetail(decodeURIComponent(orderMatch[1]));
         return handleOfflineOrderList();
       }
     }
