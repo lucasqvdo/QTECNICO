@@ -58,13 +58,21 @@ export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
   });
 }
 
+export async function cacheUser(user: UserProfile | null): Promise<void> {
+  if (!user) return;
+  const db = await openDb();
+  const tx = db.transaction(META, 'readwrite');
+  tx.objectStore(META).put({ key: 'user', value: user });
+  await txDone(tx);
+}
+
 export async function cacheSnapshot(orders: ServiceOrder[], user: UserProfile | null): Promise<void> {
   const db = await openDb();
   const tx = db.transaction([ORDERS, META], 'readwrite');
   const ordersStore = tx.objectStore(ORDERS);
   ordersStore.clear();
   for (const order of orders) ordersStore.put(order);
-  tx.objectStore(META).put({ key: 'user', value: user });
+  if (user) tx.objectStore(META).put({ key: 'user', value: user });
   tx.objectStore(META).put({ key: 'last_server_sync', value: Date.now() });
   await txDone(tx);
 }
