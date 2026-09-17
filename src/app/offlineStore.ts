@@ -1,15 +1,16 @@
-import type { ServiceOrder, AttendancePhoto } from './types';
+import type { ServiceOrder, AttendancePhoto, Client } from './types';
 import type { UserProfile } from './api';
 
 const DB_NAME = 'qtecnico-offline';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const ORDERS = 'orders';
+const CLIENTS = 'clients';
 const META = 'meta';
 const QUEUE = 'sync_queue';
 
 type QueueItem = {
   id: string;
-  type: 'order_update' | 'attendance_photo' | 'signature_upload';
+  type: 'order_create' | 'order_update' | 'attendance_photo' | 'signature_upload';
   orderId: string;
   attendanceId?: string;
   order: ServiceOrder;
@@ -22,7 +23,7 @@ type QueueItem = {
   lastError?: string;
 };
 
-export type OfflineSnapshot = { orders: ServiceOrder[]; user: UserProfile | null };
+export type OfflineSnapshot = { orders: ServiceOrder[]; clients: Client[]; user: UserProfile | null };
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -31,6 +32,7 @@ function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(ORDERS)) db.createObjectStore(ORDERS, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(CLIENTS)) db.createObjectStore(CLIENTS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'key' });
       if (!db.objectStoreNames.contains(QUEUE)) db.createObjectStore(QUEUE, { keyPath: 'id' });
     };
@@ -50,10 +52,11 @@ function txDone(tx: IDBTransaction): Promise<void> {
 export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction([ORDERS, META], 'readonly');
+    const tx = db.transaction([ORDERS, CLIENTS, META], 'readonly');
     const ordersReq = tx.objectStore(ORDERS).getAll();
+    const clientsReq = tx.objectStore(CLIENTS).getAll();
     const userReq = tx.objectStore(META).get('user');
-    tx.oncomplete = () => resolve({ orders: (ordersReq.result || []) as ServiceOrder[], user: userReq.result?.value || null });
+    tx.oncomplete = () => resolve({ orders: (ordersReq.result || []) as ServiceOrder[], clients: (clientsReq.result || []) as Client[], user: userReq.result?.value || null });
     tx.onerror = () => reject(tx.error || new Error('Não foi possível ler o cache offline.'));
   });
 }
@@ -66,12 +69,18 @@ export async function cacheUser(user: UserProfile | null): Promise<void> {
   await txDone(tx);
 }
 
-export async function cacheSnapshot(orders: ServiceOrder[], user: UserProfile | null): Promise<void> {
+export async function cacheSnapshot(orders: ServiceOrder[], user: UserProfile | null, clients?: Client[]): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction([ORDERS, META], 'readwrite');
+  const stores = clients ? [ORDERS, CLIENTS, META] : [ORDERS, META];
+  const tx = db.transaction(stores, 'readwrite');
   const ordersStore = tx.objectStore(ORDERS);
   ordersStore.clear();
   for (const order of orders) ordersStore.put(order);
+  if (clients) {
+    const clientsStore = tx.objectStore(CLIENTS);
+    clientsStore.clear();
+    for (const client of clients) clientsStore.put(client);
+  }
   if (user) tx.objectStore(META).put({ key: 'user', value: user });
   tx.objectStore(META).put({ key: 'last_server_sync', value: Date.now() });
   await txDone(tx);
@@ -82,6 +91,24 @@ export async function cacheOrders(orders: ServiceOrder[]): Promise<void> {
   const tx = db.transaction(ORDERS, 'readwrite');
   const store = tx.objectStore(ORDERS);
   for (const order of orders) store.put(order);
+  await txDone(tx);
+}
+
+export async function cacheClients(clients: Client[]): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(CLIENTS, 'readwrite');
+  const store = tx.objectStore(CLIENTS);
+  store.clear();
+  for (const client of clients) store.put(client);
+  await txDone(tx);
+}
+
+export async function queueOrderCreate(order: ServiceOrder): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction([QUEUE, ORDERS], 'readwrite');
+  const now = Date.now();
+  tx.objectStore(QUEUE).put({ id: `create:${order.id}`, type: 'order_create', orderId: order.id, order, createdAt: now, updatedAt: now, attempts: 0 } satisfies QueueItem);
+  tx.objectStore(ORDERS).put(order);
   await txDone(tx);
 }
 
