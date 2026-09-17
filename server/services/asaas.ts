@@ -63,6 +63,10 @@ export async function createAsaasSubscription(input: { customer: string; billing
   return asaasRequest('/subscriptions', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export async function getAsaasSubscription(subscriptionId: string) {
+  return asaasRequest<any>(`/subscriptions/${encodeURIComponent(subscriptionId)}`);
+}
+
 export async function getAsaasSubscriptionPayments(subscriptionId: string) {
   return asaasRequest<{ object?: string; hasMore?: boolean; totalCount?: number; limit?: number; offset?: number; data?: any[] }>(`/subscriptions/${encodeURIComponent(subscriptionId)}/payments`);
 }
