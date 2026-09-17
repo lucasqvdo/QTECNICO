@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAdmin } from '../auth.js';
-import { createAsaasCustomer, createAsaasSubscription, getAsaasSubscriptionPayments } from '../services/asaas.js';
+import { createAsaasCustomer, createAsaasSubscription, getAsaasSubscription, getAsaasSubscriptionPayments } from '../services/asaas.js';
 
 const router = Router();
 type BillingType = 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'UNDEFINED';
@@ -29,6 +29,7 @@ async function syncAsaasPayments(accountId: number, subscriptionId: number, prov
         (subscription_id,account_id,amount,currency,status,due_at,paid_at,refunded_at,provider,provider_payment_id,invoice_url,failure_reason,metadata)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'asaas',$9,$10,$11,$12::jsonb)
        ON CONFLICT (provider_payment_id) DO UPDATE SET
+         subscription_id=EXCLUDED.subscription_id,account_id=EXCLUDED.account_id,
          amount=EXCLUDED.amount,status=EXCLUDED.status,due_at=EXCLUDED.due_at,
          paid_at=EXCLUDED.paid_at,refunded_at=EXCLUDED.refunded_at,
          invoice_url=EXCLUDED.invoice_url,failure_reason=EXCLUDED.failure_reason,
@@ -45,6 +46,49 @@ async function syncAsaasPayments(accountId: number, subscriptionId: number, prov
   return payments;
 }
 
+async function syncAsaasSubscriptionState(accountId: number, subscriptionId: number, providerSubscriptionId: string, options: { activationDate?: string | null } = {}) {
+  const remote = await getAsaasSubscription(providerSubscriptionId) as any;
+  const remoteStatus = String(remote?.status || '').toUpperCase();
+  const nextDueDate = remote?.nextDueDate || null;
+  const billingType = remote?.billingType || null;
+  const value = remote?.value != null ? Number(remote.value) : null;
+  const cycle = remote?.cycle || null;
+  const existing = await pool.query(`SELECT plan_key,current_period_start,current_period_end FROM subscriptions WHERE id=$1 AND account_id=$2 LIMIT 1`, [subscriptionId, accountId]);
+  const local = existing.rows[0];
+  if (!local) return null;
+
+  const activationDate = options.activationDate || null;
+  const periodStart = activationDate || local.current_period_start || new Date().toISOString();
+  const status = remoteStatus === 'ACTIVE' ? 'active' : remoteStatus === 'INACTIVE' ? 'cancelled' : remoteStatus === 'EXPIRED' ? 'cancelled' : local.status || 'pending_payment';
+
+  await pool.query(
+    `UPDATE subscriptions
+        SET status=$1,
+            current_period_start=COALESCE($2,current_period_start),
+            current_period_end=COALESCE($3,current_period_end),
+            canceled_at=CASE WHEN $1='cancelled' THEN COALESCE(canceled_at,NOW()) ELSE canceled_at END,
+            amount=COALESCE($4,amount),
+            billing_interval=CASE WHEN $5='MONTHLY' THEN 'month' WHEN $5='QUARTERLY' THEN 'quarter' WHEN $5='SEMIANNUALLY' THEN 'half-year' WHEN $5='YEARLY' THEN 'year' ELSE billing_interval END,
+            updated_at=NOW()
+      WHERE id=$6 AND account_id=$7`,
+    [status, periodStart, nextDueDate, value, cycle, subscriptionId, accountId],
+  );
+
+  if (status === 'active') {
+    await pool.query(
+      `UPDATE accounts SET plan_key=$1,subscription_status='active',current_period_end=$2 WHERE id=$3`,
+      [local.plan_key, nextDueDate || local.current_period_end || null, accountId],
+    );
+  } else if (status === 'cancelled') {
+    await pool.query(
+      `UPDATE accounts SET subscription_status='cancelled',current_period_end=$1 WHERE id=$2`,
+      [nextDueDate || local.current_period_end || null, accountId],
+    );
+  }
+
+  return { ...remote, status: remoteStatus, localStatus: status, nextDueDate };
+}
+
 router.get('/billing', requireAdmin, async (req, res) => {
   try {
     const account = await getAccountContext(req.userId!);
@@ -55,14 +99,18 @@ router.get('/billing', requireAdmin, async (req, res) => {
     ]);
     const subscription = subscriptionResult.rows[0] || null;
     if (subscription?.provider === 'asaas' && subscription.provider_subscription_id) {
-      try { await syncAsaasPayments(account.account_id, subscription.id, subscription.provider_subscription_id); }
-      catch (error) { console.warn('Billing Asaas refresh failed:', error); }
+      try {
+        await syncAsaasSubscriptionState(account.account_id, subscription.id, subscription.provider_subscription_id);
+        await syncAsaasPayments(account.account_id, subscription.id, subscription.provider_subscription_id);
+      } catch (error) { console.warn('Billing Asaas refresh failed:', error); }
     }
     const localPayments = await pool.query(`SELECT id,amount,currency,status,due_at,paid_at,refunded_at,provider,provider_payment_id,invoice_url,failure_reason,created_at FROM subscription_payments WHERE account_id=$1 ORDER BY COALESCE(paid_at,due_at,created_at) DESC LIMIT 30`, [account.account_id]);
+    const refreshed = await pool.query(`SELECT s.*,sp.name AS plan_name,sp.description AS plan_description FROM subscriptions s LEFT JOIN saas_plans sp ON sp.plan_key=s.plan_key WHERE s.account_id=$1 ORDER BY s.created_at DESC LIMIT 1`, [account.account_id]);
+    const current = refreshed.rows[0] || subscription;
     return res.json({
       account: { id: account.account_id, company: account.trade_name || account.legal_name || 'Empresa', email: account.company_email || account.owner_email || '', document: account.document || '' },
       plans: plans.rows.map((p) => ({ key: p.plan_key, name: p.name, description: p.description, amount: Number(p.amount || 0), currency: p.currency, billingInterval: p.billing_interval, features: p.features, limits: p.limits })),
-      subscription: subscription ? { id: subscription.id, planKey: subscription.plan_key, planName: subscription.plan_name, status: subscription.status, amount: Number(subscription.amount || 0), currency: subscription.currency, billingInterval: subscription.billing_interval, trialStartAt: subscription.trial_start_at, trialEndAt: subscription.trial_end_at, currentPeriodStart: subscription.current_period_start, currentPeriodEnd: subscription.current_period_end, canceledAt: subscription.canceled_at, provider: subscription.provider, providerSubscriptionId: subscription.provider_subscription_id } : null,
+      subscription: current ? { id: current.id, planKey: current.plan_key, planName: current.plan_name, status: current.status, amount: Number(current.amount || 0), currency: current.currency, billingInterval: current.billing_interval, trialStartAt: current.trial_start_at, trialEndAt: current.trial_end_at, currentPeriodStart: current.current_period_start, currentPeriodEnd: current.current_period_end, canceledAt: current.canceled_at, provider: current.provider, providerSubscriptionId: current.provider_subscription_id } : null,
       payments: localPayments.rows.map((p) => ({ id: p.id, amount: Number(p.amount || 0), currency: p.currency, status: p.status, dueAt: p.due_at, paidAt: p.paid_at, refundedAt: p.refunded_at, provider: p.provider, providerPaymentId: p.provider_payment_id, invoiceUrl: p.invoice_url, failureReason: p.failure_reason, createdAt: p.created_at })),
     });
   } catch (error) {
@@ -115,8 +163,9 @@ router.post('/billing/refresh', requireAdmin, async (req, res) => {
     const result = await pool.query(`SELECT id,provider_subscription_id FROM subscriptions WHERE account_id=$1 AND provider='asaas' ORDER BY created_at DESC LIMIT 1`, [account.account_id]);
     const subscription = result.rows[0];
     if (!subscription?.provider_subscription_id) return res.status(404).json({ error: 'Nenhuma assinatura Asaas encontrada.' });
+    const remote = await syncAsaasSubscriptionState(account.account_id, subscription.id, subscription.provider_subscription_id);
     const payments = await syncAsaasPayments(account.account_id, subscription.id, subscription.provider_subscription_id);
-    return res.json({ payments: payments.map((p: any) => ({ id: p.id, status: p.status, invoiceUrl: p.invoiceUrl, dueDate: p.dueDate, value: Number(p.value || 0), billingType: p.billingType })) });
+    return res.json({ subscription: remote ? { status: remote.localStatus, asaasStatus: remote.status, nextDueDate: remote.nextDueDate } : null, payments: payments.map((p: any) => ({ id: p.id, status: p.status, invoiceUrl: p.invoiceUrl, dueDate: p.dueDate, value: Number(p.value || 0), billingType: p.billingType })) });
   } catch (error) {
     console.error('Customer billing refresh error:', error);
     return res.status(502).json({ error: error instanceof Error ? error.message : 'Não foi possível atualizar a cobrança.' });
@@ -133,6 +182,7 @@ router.post('/webhooks/asaas', async (req, res) => {
   const payment = req.body?.payment || null;
   const subscription = req.body?.subscription || null;
   if (!eventId) return res.status(400).json({ error: 'Evento Asaas sem id.' });
+
   try {
     const providerPaymentId = typeof payment?.id === 'string' ? payment.id : null;
     const providerSubscriptionId = typeof payment?.subscription === 'string' ? payment.subscription : (typeof subscription?.id === 'string' ? subscription.id : null);
@@ -178,16 +228,26 @@ router.post('/webhooks/asaas', async (req, res) => {
       await pool.query(`INSERT INTO subscription_events (account_id,subscription_id,actor_user_id,event_type,source,payload) VALUES ($1,$2,NULL,$3,'asaas_webhook',$4::jsonb)`, [subscriptionRow.account_id, subscriptionRow.id, eventType, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription })]);
     }
 
+    const activationDate = payment?.paymentDate || payment?.confirmedDate || null;
     if (eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') {
-      const updatedSubscription = await pool.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1 RETURNING plan_key,current_period_start,current_period_end`, [subscriptionRow.id]);
-      const activeSubscription = updatedSubscription.rows[0];
-      if (activeSubscription) {
-        await pool.query(`UPDATE accounts SET plan_key=$1,subscription_status='active',current_period_end=$2,updated_at=NOW() WHERE id=$3`, [activeSubscription.plan_key, activeSubscription.current_period_end || null, subscriptionRow.account_id]);
-      }
+      await syncAsaasSubscriptionState(subscriptionRow.account_id, subscriptionRow.id, providerSubscriptionId!, { activationDate });
     } else if (eventType === 'PAYMENT_OVERDUE') {
       await pool.query(`UPDATE subscriptions SET status='past_due',updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','canceled')`, [subscriptionRow.id]);
-      await pool.query(`UPDATE accounts SET subscription_status='past_due',updated_at=NOW() WHERE id=$1`, [subscriptionRow.account_id]);
+      await pool.query(`UPDATE accounts SET subscription_status='past_due' WHERE id=$1`, [subscriptionRow.account_id]);
+    } else if (['PAYMENT_REFUNDED','PAYMENT_PARTIALLY_REFUNDED','PAYMENT_RECEIVED_IN_CASH_UNDONE','PAYMENT_CHARGEBACK_REQUESTED','PAYMENT_CHARGEBACK_DISPUTE'].includes(eventType)) {
+      await pool.query(`UPDATE subscriptions SET status='past_due',updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','canceled')`, [subscriptionRow.id]);
+      await pool.query(`UPDATE accounts SET subscription_status='past_due' WHERE id=$1`, [subscriptionRow.account_id]);
+    } else if (eventType === 'PAYMENT_RESTORED') {
+      try { await syncAsaasSubscriptionState(subscriptionRow.account_id, subscriptionRow.id, providerSubscriptionId!); }
+      catch (error) { console.warn('Asaas restored payment subscription refresh failed:', error); }
+    } else if (['SUBSCRIPTION_CREATED','SUBSCRIPTION_UPDATED'].includes(eventType)) {
+      await syncAsaasSubscriptionState(subscriptionRow.account_id, subscriptionRow.id, providerSubscriptionId!);
+    } else if (['SUBSCRIPTION_INACTIVATED','SUBSCRIPTION_DELETED'].includes(eventType)) {
+      const nextDueDate = subscription?.nextDueDate || null;
+      await pool.query(`UPDATE subscriptions SET status='cancelled',canceled_at=COALESCE(canceled_at,NOW()),current_period_end=COALESCE($1,current_period_end),updated_at=NOW() WHERE id=$2`, [nextDueDate, subscriptionRow.id]);
+      await pool.query(`UPDATE accounts SET subscription_status='cancelled',current_period_end=COALESCE($1,current_period_end) WHERE id=$2`, [nextDueDate, subscriptionRow.account_id]);
     }
+
     return res.status(200).json({ received: true, processed: true });
   } catch (error) {
     console.error('Asaas webhook error:', error);
