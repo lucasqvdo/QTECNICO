@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import DeviceRouter from "./app/DeviceRouter";
 import PricingPage from "./app/PricingPage";
@@ -6,6 +6,8 @@ import BackofficeLogin from "./app/BackofficeLogin";
 import BackofficeDashboard from "./app/BackofficeDashboard";
 import BackofficeBilling from "./app/BackofficeBilling";
 import BackofficeAccount from "./app/BackofficeAccount";
+import OfflineStatus from "./app/offline/OfflineStatus";
+import { initializeOfflineDb } from "./app/offline/offlineDb";
 import "./styles/index.css";
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error: Error | null }> {
@@ -18,7 +20,23 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error:
   }
 }
 
+function OfflineFoundation() {
+  useEffect(() => {
+    initializeOfflineDb().catch((error) => {
+      console.warn("QTecnico: infraestrutura offline indisponível", error);
+    });
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
+        console.warn("QTecnico: falha ao registrar service worker", error);
+      });
+    }
+  }, []);
+
+  return <OfflineStatus />;
+}
+
 const root = createRoot(document.getElementById("root")!);
 const path = window.location.pathname;
 const page = path === "/planos" ? <PricingPage /> : path === "/backoffice/login" ? <BackofficeLogin /> : path === "/backoffice/billing" ? <BackofficeBilling /> : path === "/backoffice/account" ? <BackofficeAccount /> : path === "/backoffice" ? <BackofficeDashboard /> : <DeviceRouter />;
-root.render(<AppErrorBoundary>{page}</AppErrorBoundary>);
+root.render(<AppErrorBoundary><OfflineFoundation />{page}</AppErrorBoundary>);
