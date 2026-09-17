@@ -178,8 +178,16 @@ router.post('/webhooks/asaas', async (req, res) => {
       await pool.query(`INSERT INTO subscription_events (account_id,subscription_id,actor_user_id,event_type,source,payload) VALUES ($1,$2,NULL,$3,'asaas_webhook',$4::jsonb)`, [subscriptionRow.account_id, subscriptionRow.id, eventType, JSON.stringify({ asaasEventId: eventId, event: eventType, payment, subscription })]);
     }
 
-    if (eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') await pool.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1`, [subscriptionRow.id]);
-    else if (eventType === 'PAYMENT_OVERDUE') await pool.query(`UPDATE subscriptions SET status='past_due',updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','canceled')`, [subscriptionRow.id]);
+    if (eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') {
+      const updatedSubscription = await pool.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1 RETURNING plan_key,current_period_start,current_period_end`, [subscriptionRow.id]);
+      const activeSubscription = updatedSubscription.rows[0];
+      if (activeSubscription) {
+        await pool.query(`UPDATE accounts SET plan_key=$1,subscription_status='active',current_period_end=$2,updated_at=NOW() WHERE id=$3`, [activeSubscription.plan_key, activeSubscription.current_period_end || null, subscriptionRow.account_id]);
+      }
+    } else if (eventType === 'PAYMENT_OVERDUE') {
+      await pool.query(`UPDATE subscriptions SET status='past_due',updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','canceled')`, [subscriptionRow.id]);
+      await pool.query(`UPDATE accounts SET subscription_status='past_due',updated_at=NOW() WHERE id=$1`, [subscriptionRow.account_id]);
+    }
     return res.status(200).json({ received: true, processed: true });
   } catch (error) {
     console.error('Asaas webhook error:', error);
