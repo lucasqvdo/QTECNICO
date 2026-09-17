@@ -11,7 +11,19 @@ const ME_PATH = "/api/users/me";
 function networkRequest(resource: RequestInfo | URL, init?: RequestInit) { return originalFetch(resource, init); }
 function isNetworkFailure(error: unknown) { return error instanceof TypeError || !navigator.onLine; }
 function getCsrfToken() { const match = document.cookie.match(/(?:^|; )qtecnico_csrf=([^;]+)/); return match ? decodeURIComponent(match[1]) : null; }
-async function cacheOrder(order: any) { if (!order || order.id == null) return; await putOffline(OFFLINE_STORES.serviceOrders, { ...order, id: String(order.id), updatedAt: new Date().toISOString() }); }
+async function hasPendingOrderSync(id: string) {
+  const queue = await getAllOffline<any>(OFFLINE_STORES.syncQueue);
+  return queue.some((item) => item?.status === "pending" && item?.entity === "service_order" && item?.entityId === id && item?.action === "update");
+}
+async function cacheOrder(order: any) {
+  if (!order || order.id == null) return;
+  const id = String(order.id);
+  const pending = await hasPendingOrderSync(id);
+  // Never let an older server response overwrite the technician's newer local state.
+  // The explicit false flag is used only after a successful sync.
+  if (pending && order.offlinePendingSync !== false) return;
+  await putOffline(OFFLINE_STORES.serviceOrders, { ...order, id, updatedAt: new Date().toISOString() });
+}
 async function cacheOrders(orders: any[]) { await Promise.all(orders.filter((order) => order && order.id != null).map(cacheOrder)); }
 async function cachedOrders() { const orders = await getAllOffline<any>(OFFLINE_STORES.serviceOrders); return orders.map(({ updatedAt: _updatedAt, ...order }) => order); }
 async function queueOrderChange(id: string, action: "update" | "create", payload: any) {
@@ -157,7 +169,26 @@ export function installOfflineFetchLayer() {
     const request = resource instanceof Request ? resource : new Request(resource, init); const url = new URL(request.url, window.location.origin); const method = request.method.toUpperCase();
     if (url.origin !== window.location.origin) return networkRequest(resource, init);
     const orderMatch = ORDER_PATH.exec(url.pathname); const attendancePhotoMatch = ATTENDANCE_PHOTO_PATH.exec(url.pathname); const attendancePhotoDeleteMatch = ATTENDANCE_PHOTO_DELETE_PATH.exec(url.pathname);
-    if (method === "GET" && orderMatch) { try { const response = await networkRequest(resource, init); if (response.ok) { const data = await response.clone().json().catch(() => null); if (Array.isArray(data)) await cacheOrders(data); else if (data?.id != null && orderMatch[1]) await cacheOrder(data); } return response; } catch (error) { if (!isNetworkFailure(error)) throw error; if (orderMatch[1]) return handleOfflineOrderDetail(decodeURIComponent(orderMatch[1])); return handleOfflineOrderList(); } }
+    if (method === "GET" && orderMatch) {
+      try {
+        const response = await networkRequest(resource, init);
+        if (response.ok) {
+          const data = await response.clone().json().catch(() => null);
+          if (Array.isArray(data)) {
+            await cacheOrders(data);
+          } else if (data?.id != null && orderMatch[1]) {
+            const id = decodeURIComponent(orderMatch[1]);
+            if (await hasPendingOrderSync(id)) return handleOfflineOrderDetail(id);
+            await cacheOrder(data);
+          }
+        }
+        return response;
+      } catch (error) {
+        if (!isNetworkFailure(error)) throw error;
+        if (orderMatch[1]) return handleOfflineOrderDetail(decodeURIComponent(orderMatch[1]));
+        return handleOfflineOrderList();
+      }
+    }
     if (method === "PUT" && orderMatch?.[1]) { try { return await networkRequest(resource, init); } catch (error) { if (!isNetworkFailure(error)) throw error; return handleOfflineOrderUpdate(decodeURIComponent(orderMatch[1]), init); } }
     if (method === "POST" && url.pathname === UPLOADS_PATH) { try { return await networkRequest(resource, init); } catch (error) { if (!isNetworkFailure(error)) throw error; return handleOfflineUpload(request); } }
     if (method === "POST" && attendancePhotoMatch) { try { return await networkRequest(resource, init); } catch (error) { if (!isNetworkFailure(error)) throw error; return handleOfflineAttendancePhoto(decodeURIComponent(attendancePhotoMatch[1]), decodeURIComponent(attendancePhotoMatch[2]), request); } }
