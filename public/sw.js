@@ -1,4 +1,4 @@
-const CACHE_NAME = "qtecnico-shell-v1";
+const CACHE_NAME = "qtecnico-shell-v2";
 const APP_SHELL = ["/"];
 
 self.addEventListener("install", (event) => {
@@ -27,6 +27,10 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // Application data is handled by the IndexedDB/offlineFetch layer.
+  // Do not put authenticated API responses into the generic HTTP cache.
+  if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
