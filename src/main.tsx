@@ -8,6 +8,7 @@ import BackofficeBilling from "./app/BackofficeBilling";
 import BackofficeAccount from "./app/BackofficeAccount";
 import OfflineStatus from "./app/offline/OfflineStatus";
 import { initializeOfflineDb } from "./app/offline/offlineDb";
+import { installOfflineFetchLayer } from "./app/offline/offlineFetch";
 import "./styles/index.css";
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error: Error | null }> {
@@ -25,6 +26,8 @@ function OfflineFoundation() {
     initializeOfflineDb().catch((error) => {
       console.warn("QTecnico: infraestrutura offline indisponível", error);
     });
+
+    installOfflineFetchLayer();
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
