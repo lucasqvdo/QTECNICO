@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle2, Clock3, MapPin, Navigation, Phone, UserRoun
 import AdminShellV2, { type TechnicianSectionV2 } from './AdminShellV2';
 import TechnicianOrderDetail from './TechnicianOrderDetail';
 import { api, type UserProfile } from './api';
+import { cacheSnapshot, getOfflineSnapshot } from './offlineStore';
 import type { ServiceOrder } from './types';
 
 const STATUS: Record<ServiceOrder['status'], { label: string; className: string }> = {
@@ -66,20 +67,37 @@ export default function TechnicianDashboardV2() {
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
+    const load = async () => {
       try {
         const [loadedOrders, loadedUser] = await Promise.all([api.getOrders(), api.getMe()]);
         if (!mounted) return;
-        setOrders(Array.isArray(loadedOrders) ? loadedOrders : []);
+        const safeOrders = Array.isArray(loadedOrders) ? loadedOrders : [];
+        setOrders(safeOrders);
         setUser(loadedUser);
+        setError('');
+        try { await cacheSnapshot(safeOrders, loadedUser); } catch (cacheError) { console.warn('Cache offline indisponível:', cacheError); }
       } catch (e) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : 'Não foi possível carregar sua área.');
+        try {
+          const cached = await getOfflineSnapshot();
+          if (cached.orders.length || cached.user) {
+            setOrders(cached.orders);
+            setUser(cached.user);
+            setError('');
+          } else {
+            setError(e instanceof Error ? e.message : 'Não foi possível carregar sua área.');
+          }
+        } catch (cacheError) {
+          setError(e instanceof Error ? e.message : cacheError instanceof Error ? cacheError.message : 'Não foi possível carregar sua área.');
+        }
       } finally {
         if (mounted) setLoading(false);
       }
-    })();
-    return () => { mounted = false; };
+    };
+    void load();
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => { mounted = false; window.removeEventListener('online', onOnline); };
   }, []);
 
   const active = useMemo(() => orders.filter(o => o.status === 'pending' || o.status === 'in_progress'), [orders]);
