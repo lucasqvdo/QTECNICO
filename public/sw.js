@@ -1,5 +1,5 @@
 const CACHE_NAME = "qtecnico-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest"];
+const APP_SHELL = ["/"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
