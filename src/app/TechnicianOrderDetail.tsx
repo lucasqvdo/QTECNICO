@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Camera, CheckCircle2, MapPin, Navigation, PenLine, Play, Square, X } from 'lucide-react';
+import { ArrowLeft, Camera, CheckCircle2, MapPin, Navigation, PenLine, Phone, Play, Square, X } from 'lucide-react';
 import { api } from './api';
 import type { Attendance, AttendancePhoto, ServiceOrder } from './types';
 
