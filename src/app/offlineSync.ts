@@ -19,11 +19,13 @@ export async function syncOfflineQueue():Promise<void>{
     const orderItems=queue.filter(i=>i.type==='order_update');
     const photoItems=queue.filter(i=>i.type==='attendance_photo');
     const signatureItems=queue.filter(i=>i.type==='signature_upload');
+    const legacyUploadItems=queue.filter(i=>i.type==='legacy_upload');
     const invalidItems=queue.filter(i=>i.type==='invalid');
     for(const item of invalidItems){
       await updateQueueFailure(item.id,'Operação offline inválida: tipo e/ou identificador da fila não puderam ser recuperados.');
     }
     if(invalidItems.length){state='error';emit();return;}
+    if(legacyUploadItems.length){state='error';emit();return;}
     for(const item of createItems){
       if(!navigator.onLine)break;
       try{await syncCreate(item);await removeQueueItem(item.id);}
