@@ -29,10 +29,10 @@ function isSafeLogoKey(key: string, accountId: number) {
 
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, role, phone, email, photo_url, is_admin FROM users WHERE id = $1', [req.userId]);
+    const result = await pool.query('SELECT id, account_id, name, role, phone, email, photo_url, is_admin FROM users WHERE id = $1', [req.userId]);
     const u = result.rows[0];
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
-    res.json({ id: u.id, name: u.name, role: u.role || '', phone: u.phone || '', email: u.email, isAdmin: Boolean(u.is_admin), photoUrl: await getDownloadUrl(u.photo_url), photoKey: u.photo_url || null });
+    res.json({ id: u.id, accountId: u.account_id == null ? null : Number(u.account_id), name: u.name, role: u.role || '', phone: u.phone || '', email: u.email, isAdmin: Boolean(u.is_admin), photoUrl: await getDownloadUrl(u.photo_url), photoKey: u.photo_url || null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
 });
 
@@ -137,7 +137,7 @@ router.put('/me', requireAuth, async (req, res) => {
     if (photoKey && !photoKey.startsWith(`profiles/${accountId}/`)) return res.status(400).json({ error: 'Foto de perfil inválida para esta conta' });
     try { await pool.query('UPDATE users SET name=$1, phone=$2, email=$3, photo_url=$4 WHERE id=$5 AND account_id=$6', [name, phone, email, photoKey || null, userId, accountId]); }
     catch (e: any) { if (e?.code === '23505') return res.status(409).json({ error: 'E-mail já cadastrado' }); throw e; }
-    res.json({ id: userId, name, role: current.rows[0].role || '', phone, email, photoUrl: await getDownloadUrl(photoKey || null), photoKey: photoKey || null });
+    res.json({ id: userId, accountId: accountId == null ? null : Number(accountId), name, role: current.rows[0].role || '', phone, email, photoUrl: await getDownloadUrl(photoKey || null), photoKey: photoKey || null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao atualizar perfil' }); }
 });
 
