@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, X } from 'lucide-react';
+import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, X, AlertCircle, Clock3 } from 'lucide-react';
 import { api } from '../api';
-import { getSyncInfo, startOfflineSync, syncOfflineQueue } from '../offlineSync';
-
+import { getQueue, getSyncInfo, startOfflineSync, syncOfflineQueue, type QueueItem } from '../offlineSync';
 type State='online'|'offline'|'syncing'|'error';
 function formatTime(value:Date|null){return value?value.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
+function typeLabel(type:QueueItem['type']){return type==='order_create'?'Criar OS':type==='order_update'?'Atualizar OS':type==='attendance_photo'?'Foto do atendimento':'Assinatura do cliente';}
 export default function ConnectivityStatus(){
   const[online,setOnline]=useState(()=>navigator.onLine);
   const[serverAvailable,setServerAvailable]=useState(false);
@@ -13,62 +13,44 @@ export default function ConnectivityStatus(){
   const[lastSync,setLastSync]=useState<Date|null>(null);
   const[error,setError]=useState('');
   const[open,setOpen]=useState(false);
+  const[queueOpen,setQueueOpen]=useState(false);
+  const[queue,setQueue]=useState<QueueItem[]>([]);
+  const[loadingQueue,setLoadingQueue]=useState(false);
 
   const refresh=async()=>{
     if(!navigator.onLine){setOnline(false);setServerAvailable(false);setState('offline');return;}
     setOnline(true);
     try{
-      const info=await getSyncInfo();
-      setPending(info.pending);
+      const info=await getSyncInfo(); setPending(info.pending);
       if(info.state==='syncing'){setState('syncing');setError('');return;}
-      await api.getMe();
-      setServerAvailable(true);
-      const after=await getSyncInfo();
-      setPending(after.pending);
-      if(after.state==='error'){
-        setState('error');
-        setError(after.lastError||'Existem operações pendentes que não foram sincronizadas.');
-        return;
-      }
-      if(after.pending>0){
-        setState('online');
-        setError('');
-      }else{
-        setLastSync(after.lastServerSync?new Date(after.lastServerSync):null);
-        setState('online');
-        setError('');
-      }
-    }catch(e){
-      setServerAvailable(false);
-      setState('error');
-      setError(e instanceof Error?e.message:'Não foi possível confirmar a conexão com o servidor.');
-    }
+      await api.getMe(); setServerAvailable(true);
+      const after=await getSyncInfo(); setPending(after.pending);
+      if(after.state==='error'){setState('error');setError(after.lastError||'Existem operações pendentes que não foram sincronizadas.');return;}
+      if(after.pending>0){setState('online');setError('');}
+      else{setLastSync(after.lastServerSync?new Date(after.lastServerSync):null);setState('online');setError('');}
+    }catch(e){setServerAvailable(false);setState('error');setError(e instanceof Error?e.message:'Não foi possível confirmar a conexão com o servidor.');}
   };
-
+  const loadQueue=async()=>{
+    setLoadingQueue(true);
+    try{setQueue(await getQueue());}catch(e){setError(e instanceof Error?e.message:'Não foi possível consultar a fila local.');}
+    finally{setLoadingQueue(false);}
+  };
+  const openQueue=async()=>{setQueueOpen(true);await loadQueue();};
   const verifyAndSync=async()=>{
     if(state==='syncing')return;
     if(!navigator.onLine){await refresh();return;}
-    setState('syncing');
-    setError('');
-    try{await syncOfflineQueue();}finally{await refresh();}
+    setState('syncing');setError('');
+    try{await syncOfflineQueue();}finally{await refresh();if(queueOpen)await loadQueue();}
   };
-
   useEffect(()=>{
     startOfflineSync();
     const onOnline=()=>{setOnline(true);void refresh();};
     const onOffline=()=>{setOnline(false);setServerAvailable(false);setState('offline');};
-    const onSync=(e:Event)=>{
-      const detail=(e as CustomEvent).detail;
-      setState(detail?.state==='syncing'?'syncing':detail?.state==='error'?'error':navigator.onLine?'online':'offline');
-      void refresh();
-    };
-    window.addEventListener('online',onOnline);
-    window.addEventListener('offline',onOffline);
-    window.addEventListener('qtecnico-sync-state',onSync);
-    void refresh();
+    const onSync=(e:Event)=>{const detail=(e as CustomEvent).detail;setState(detail?.state==='syncing'?'syncing':detail?.state==='error'?'error':navigator.onLine?'online':'offline');void refresh();if(queueOpen)void loadQueue();};
+    window.addEventListener('online',onOnline);window.addEventListener('offline',onOffline);window.addEventListener('qtecnico-sync-state',onSync);void refresh();
     const timer=window.setInterval(()=>void refresh(),10000);
     return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);window.removeEventListener('qtecnico-sync-state',onSync);window.clearInterval(timer);};
-  },[]);
+  },[queueOpen]);
 
   const meta=useMemo(()=>{
     if(state==='offline')return{label:'Offline',Icon:WifiOff,className:'border-red-200 bg-red-50 text-red-700'};
@@ -82,7 +64,7 @@ export default function ConnectivityStatus(){
     <button type="button" onClick={()=>setOpen(v=>!v)} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition hover:brightness-95 ${meta.className}`} title="Status da conexão e sincronização">
       <meta.Icon size={14} className={state==='syncing'?'animate-spin':''}/><span className="hidden sm:inline">{meta.label}</span>
     </button>
-    {open&&<div className="absolute right-0 top-11 z-50 w-72 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-xl">
+    {open&&<div className="absolute right-0 top-11 z-50 w-80 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-xl">
       <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-900">Status da conexão</p><p className="mt-0.5 text-xs text-slate-500">Estado atual do QTECNICO</p></div><button type="button" onClick={()=>setOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100" aria-label="Fechar"><X size={16}/></button></div>
       <div className="mt-4 space-y-2 text-sm">
         <div className="flex items-center justify-between"><span className="text-slate-500">Internet</span><span className={`font-semibold ${online?'text-emerald-600':'text-red-600'}`}>{online?'Conectada':'Desconectada'}</span></div>
@@ -91,7 +73,23 @@ export default function ConnectivityStatus(){
         <div className="flex items-center justify-between"><span className="text-slate-500">Última sincronização</span><span className="font-semibold text-slate-700">{formatTime(lastSync)}</span></div>
       </div>
       {error&&<p className="mt-3 rounded-xl bg-red-50 p-3 text-xs leading-relaxed text-red-700">{error}</p>}
-      <button type="button" onClick={()=>void verifyAndSync()} disabled={state==='syncing'} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"><Wifi size={14}/>Verificar e sincronizar</button>
+      {pending>0&&<button type="button" onClick={()=>void openQueue()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100"><AlertCircle size={14}/>Ver operações pendentes</button>}
+      <button type="button" onClick={()=>void verifyAndSync()} disabled={state==='syncing'} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"><Wifi size={14}/>Verificar e sincronizar</button>
+    </div>}
+    {queueOpen&&<div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true">
+      <div className="max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-4"><div><p className="text-base font-bold text-slate-900">Operações pendentes</p><p className="text-xs text-slate-500">{queue.length} item(ns) na fila local</p></div><button type="button" onClick={()=>setQueueOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Fechar"><X size={18}/></button></div>
+        <div className="max-h-[65vh] overflow-y-auto p-4">
+          {loadingQueue?<div className="py-10 text-center text-sm text-slate-500">Carregando fila local…</div>:queue.length===0?<div className="py-10 text-center text-sm text-emerald-600">Fila vazia. Tudo sincronizado.</div>:<div className="space-y-3">
+            {queue.map(item=><div key={item.id} className="rounded-xl border border-slate-200 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-slate-900">{typeLabel(item.type)}</p><p className="mt-0.5 text-xs text-slate-500">OS: {item.orderId}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.lastError?'bg-red-50 text-red-700':'bg-amber-50 text-amber-700'}`}>{item.lastError?'Com erro':'Pendente'}</span></div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600"><div><span className="text-slate-400">Tentativas:</span> {item.attempts}</div><div><span className="text-slate-400">Atualizado:</span> {new Date(item.updatedAt).toLocaleString('pt-BR')}</div></div>
+              {item.lastError?<div className="mt-2 rounded-lg bg-red-50 p-2.5 text-xs leading-relaxed text-red-700"><div className="mb-1 flex items-center gap-1 font-semibold"><AlertCircle size={13}/>Erro</div>{item.lastError}</div>:<div className="mt-2 flex items-center gap-1 text-xs text-slate-500"><Clock3 size={13}/>Aguardando sincronização</div>}
+            </div>)}
+          </div>}
+        </div>
+        <div className="flex gap-2 border-t border-slate-200 p-4"><button type="button" onClick={()=>void loadQueue()} disabled={loadingQueue} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RefreshCw size={13} className="mr-1 inline"/>Atualizar lista</button><button type="button" onClick={()=>void verifyAndSync()} disabled={state==='syncing'} className="flex-1 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">Sincronizar agora</button></div>
+      </div>
     </div>}
   </div>;
 }
