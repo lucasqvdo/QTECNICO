@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./api";
+import { getOfflineSnapshot } from "./offlineStore";
 
 const App = lazy(() => import("./App"));
 const AdminDashboard = lazy(() => import("./AdminDashboardV2"));
@@ -34,7 +35,28 @@ export default function DeviceRouter() {
       setWorkspace(target);
     };
 
+    const finishFromCachedUser = async () => {
+      try {
+        const cached = await getOfflineSnapshot();
+        if (!mounted) return;
+        if (cached.user) {
+          finish(cached.user.isAdmin ? 'admin' : 'technician');
+          return;
+        }
+      } catch (error) {
+        console.warn("QTecnico: não foi possível ler o cache offline no início", error);
+      }
+      finish('app');
+    };
+
     const checkAuth = async () => {
+      // No cold start offline, não espere uma requisição de rede falhar.
+      // O usuário e as OSs já preparadas para trabalho de campo ficam no IndexedDB.
+      if (!navigator.onLine) {
+        await finishFromCachedUser();
+        return;
+      }
+
       try {
         const user = await api.getMe();
         if (!mounted) return;
@@ -67,19 +89,29 @@ export default function DeviceRouter() {
 
     const handleSessionExpired = () => {
       if (!mounted) return;
+      // Uma resposta 401 só é relevante enquanto há conexão. Offline,
+      // o cache local deve continuar permitindo o trabalho do técnico.
+      if (!navigator.onLine) return;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       settled = true;
       setWorkspace('app');
     };
 
+    const handleOnline = () => {
+      if (!mounted || workspace) return;
+      void checkAuth();
+    };
+
     window.addEventListener("qtecnico-authenticated", handleAuthenticated);
     window.addEventListener("qtecnico-session-expired", handleSessionExpired);
+    window.addEventListener("online", handleOnline);
 
     return () => {
       mounted = false;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       window.removeEventListener("qtecnico-authenticated", handleAuthenticated);
       window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
+      window.removeEventListener("online", handleOnline);
     };
   }, []);
 
