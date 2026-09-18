@@ -159,15 +159,37 @@ function normalizeQueueItem(raw:any):QueueItem{
 export async function getQueue():Promise<QueueItem[]>{
   const accountId=await activeAccountId(),db=await openDb();
   return new Promise((resolve,reject)=>{
-    const tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.getAll();
-    req.onsuccess=()=>{
-      const rows=(req.result||[]).filter((x:any)=>Number(x.accountId)===accountId);
-      for(const raw of rows){
+    const tx=db.transaction([QUEUE,ORDERS],'readwrite');
+    const queueStore=tx.objectStore(QUEUE),orderStore=tx.objectStore(ORDERS);
+    const queueReq=queueStore.getAll(),ordersReq=orderStore.getAll();
+    queueReq.onsuccess=()=>{
+      const rows=(queueReq.result||[]).filter((x:any)=>Number(x.accountId)===accountId);
+      const orders=(ordersReq.result||[]).filter((x:any)=>Number(x.accountId)===accountId).map((x:any)=>x.value||x) as ServiceOrder[];
+      const normalizedRows=rows.map((raw:any)=>{
         const normalized=normalizeQueueItem(raw);
-        const changed=raw.type!==normalized.type||raw.orderId!==normalized.orderId||raw.createdAt!==normalized.createdAt||raw.updatedAt!==normalized.updatedAt||raw.attempts!==normalized.attempts;
-        if(changed)s.put(normalized);
+        if(normalized.type==='attendance_photo'&&!normalized.orderId){
+          const photoId=normalized.photoId||String(normalized.id).split(':')[1]||'';
+          if(photoId){
+            for(const order of orders){
+              const attendance=order.attendances?.find(a=>(a.photos||[]).some(p=>p.id===photoId));
+              if(attendance){
+                normalized.orderId=order.id;
+                normalized.attendanceId=normalized.attendanceId||attendance.id;
+                normalized.order=order;
+                normalized.photoId=normalized.photoId||photoId;
+                break;
+              }
+            }
+          }
+        }
+        return normalized;
+      });
+      for(let i=0;i<rows.length;i++){
+        const raw=rows[i],normalized=normalizedRows[i];
+        const changed=raw.type!==normalized.type||raw.orderId!==normalized.orderId||raw.attendanceId!==normalized.attendanceId||raw.createdAt!==normalized.createdAt||raw.updatedAt!==normalized.updatedAt||raw.attempts!==normalized.attempts;
+        if(changed)queueStore.put(normalized);
       }
-      resolve(rows.map(normalizeQueueItem));
+      resolve(normalizedRows);
     };
     tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler a fila offline.'));
   });
