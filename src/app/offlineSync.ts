@@ -1,5 +1,5 @@
 import { api } from './api';
-import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, markQueueAttempt, markQueueManualRecovery, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
+import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, markQueueAttempt, clearLegacyRecoveryItems, markQueueManualRecovery, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
 
 let running=false;
 let listenersBound=false;
