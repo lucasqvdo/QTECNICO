@@ -5,7 +5,7 @@ import { getSyncInfo, startOfflineSync, syncOfflineQueue } from '../offlineSync'
 import { getQueue, type QueueItem } from '../offlineStore';
 type State='online'|'offline'|'syncing'|'error';
 function formatTime(value:Date|null){return value?value.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
-function typeLabel(type:QueueItem['type']){return type==='order_create'?'Criar OS':type==='order_update'?'Atualizar OS':type==='attendance_photo'?'Foto do atendimento':type==='signature_upload'?'Assinatura do cliente':'Operação inválida';}
+function typeLabel(type:QueueItem['type']){return type==='order_create'?'Criar OS':type==='order_update'?'Atualizar OS':type==='attendance_photo'?'Foto do atendimento':type==='signature_upload'?'Assinatura do cliente':type==='legacy_upload'?'Mídia legada':'Operação inválida';}
 export default function ConnectivityStatus(){
   const[online,setOnline]=useState(()=>navigator.onLine);
   const[serverAvailable,setServerAvailable]=useState(false);
