@@ -75,12 +75,50 @@ export async function getOfflineSnapshot():Promise<OfflineSnapshot>{
 export async function cacheUser(user:UserProfile|null):Promise<void>{if(!user)return;const db=await openDb();await migrateLegacyForUser(db,user);}
 export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,clients?:Client[]):Promise<void>{
   if(!user?.accountId)throw new Error('Conta offline não identificada.');
-  const db=await openDb(),accountId=Number(user.accountId),tx=db.transaction([ORDERS,CLIENTS,META,QUEUE],'readwrite');
-  const os=tx.objectStore(ORDERS),qs=tx.objectStore(QUEUE),pendingReq=qs.getAll(),existingOrdersReq=os.getAll();
-  pendingReq.onsuccess=()=>{const pending=(pendingReq.result||[]).filter((x:any)=>Number(x.accountId)===accountId) as QueueItem[];existingOrdersReq.onsuccess=()=>{for(const existing of existingOrdersReq.result||[])if(Number(existing.accountId)===accountId)os.delete(existing.id);for(const order of orders)os.put({id:`${accountId}:${order.id}`,accountId,value:order});const pendingOrders=new Map<string,ServiceOrder>();for(const item of pending)pendingOrders.set(item.orderId,item.order);for(const order of pendingOrders.values())os.put({id:`${accountId}:${order.id}`,accountId,value:order});if(clients){const cs=tx.objectStore(CLIENTS),existingClientsReq=cs.getAll();existingClientsReq.onsuccess=()=>{for(const existing of existingClientsReq.result||[])if(Number(existing.accountId)===accountId)cs.delete(existing.id);for(const client of clients)cs.put({id:`${accountId}:${client.id}`,accountId,value:client});};}tx.objectStore(META).put({key:'user',value:user});tx.objectStore(META).put({key:`last_server_sync:${accountId}`,value:Date.now()});};
+  const db=await openDb();
+  const accountId=Number(user.accountId);
+  const tx=db.transaction([ORDERS,CLIENTS,META,QUEUE],'readwrite');
+  const os=tx.objectStore(ORDERS);
+  const qs=tx.objectStore(QUEUE);
+  const pendingReq=qs.getAll();
+  const existingOrdersReq=os.getAll();
+
+  pendingReq.onsuccess=()=>{
+    const pending=(pendingReq.result||[]).filter((x:any)=>Number(x.accountId)===accountId) as QueueItem[];
+    existingOrdersReq.onsuccess=()=>{
+      for(const existing of existingOrdersReq.result||[]){
+        if(Number(existing.accountId)===accountId)os.delete(existing.id);
+      }
+      for(const order of orders){
+        os.put({id:accountId+':'+order.id,accountId,value:order});
+      }
+
+      const pendingOrders=new Map<string,ServiceOrder>();
+      for(const item of pending)pendingOrders.set(item.orderId,item.order);
+      for(const order of pendingOrders.values()){
+        os.put({id:accountId+':'+order.id,accountId,value:order});
+      }
+
+      if(clients){
+        const cs=tx.objectStore(CLIENTS);
+        const existingClientsReq=cs.getAll();
+        existingClientsReq.onsuccess=()=>{
+          for(const existing of existingClientsReq.result||[]){
+            if(Number(existing.accountId)===accountId)cs.delete(existing.id);
+          }
+          for(const client of clients){
+            cs.put({id:accountId+':'+client.id,accountId,value:client});
+          }
+        };
+      }
+
+      tx.objectStore(META).put({key:'user',value:user});
+      tx.objectStore(META).put({key:'last_server_sync:'+accountId,value:Date.now()});
+    };
+  };
+
   await txDone(tx);
-}
-async function putOrder(order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
+}async function putOrder(order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
 export async function cacheOrders(orders:ServiceOrder[]){for(const order of orders)await putOrder(order);}
 export async function cacheClients(clients:Client[]){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite'),s=tx.objectStore(CLIENTS),existingReq=s.getAll();existingReq.onsuccess=()=>{for(const existing of existingReq.result||[])if(Number(existing.accountId)===accountId)s.delete(existing.id);for(const c of clients)s.put({id:`${accountId}:${c.id}`,accountId,value:c});};await txDone(tx);}
 async function enqueue(item:Omit<QueueItem,'accountId'>,order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');const scopedId=`${accountId}:${item.id}`;tx.objectStore(QUEUE).put({...item,id:scopedId,accountId});tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
