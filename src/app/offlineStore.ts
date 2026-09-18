@@ -202,7 +202,19 @@ export async function getQueue():Promise<QueueItem[]>{
 export async function updateQueueUpload(id:string,uploadedKey:string,uploadedUrl:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,uploadedKey,uploadedUrl,updatedAt:Date.now()});};await txDone(tx);}
 export async function markQueueManualRecovery(id:string,error:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,manualRecovery:true,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
 export async function updateQueueFailure(id:string,error:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,attempts:item.attempts+1,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
-export async function clearLegacyRecoveryItems(){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.getAll();req.onsuccess=()=>{for(const item of (req.result||[]) as QueueItem[])if(Number(item.accountId)===accountId&&((item.id==='attendance-photo:photo-1789664640520-nq756x')||String(item.id).startsWith('upload:offline/attendances/1789664640256-44kocpd3-')||String(item.id).startsWith('upload:offline/signatures/1789665097641-q2rp0e27-')))s.delete(item.id);};await txDone(tx);}
+export async function clearLegacyRecoveryItems(){
+  const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.getAll();
+  req.onsuccess=()=>{
+    for(const item of (req.result||[]) as QueueItem[]){
+      if(Number(item.accountId)!==accountId)continue;
+      const rawId=String(item.id||'');
+      const localId=rawId.startsWith(String(accountId)+':')?rawId.slice(String(accountId).length+1):rawId;
+      const stale=localId==='attendance-photo:photo-1789664640520-nq756x'||localId.startsWith('upload:offline/attendances/1789664640256-44kocpd3-')||localId.startsWith('upload:offline/signatures/1789665097641-q2rp0e27-');
+      if(stale)s.delete(item.id);
+    }
+  };
+  await txDone(tx);
+}
 export async function removeQueueItem(id:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.delete(id);};await txDone(tx);}
 export async function getLastServerSync():Promise<number|null>{const accountId=await activeAccountId(),db=await openDb();return new Promise((resolve,reject)=>{const tx=db.transaction(META,'readonly'),req=tx.objectStore(META).get(`last_server_sync:${accountId}`);tx.oncomplete=()=>resolve(typeof req.result?.value==='number'?req.result.value:null);tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler o estado offline.'));});}
 export async function markServerSync(){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`last_server_sync:${accountId}`,value:Date.now()});await txDone(tx);}
