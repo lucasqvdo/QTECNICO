@@ -25,7 +25,6 @@ export async function syncOfflineQueue():Promise<void>{
       await updateQueueFailure(item.id,'Operação offline inválida: tipo e/ou identificador da fila não puderam ser recuperados.');
     }
     if(invalidItems.length){state='error';emit();return;}
-    if(legacyUploadItems.length){state='error';emit();return;}
     for(const item of createItems){
       if(!navigator.onLine)break;
       try{await syncCreate(item);await removeQueueItem(item.id);}
@@ -49,6 +48,7 @@ export async function syncOfflineQueue():Promise<void>{
       try{await syncSignature(item);await removeQueueItem(item.id);}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}
     }
+    if(legacyUploadItems.length){state='error';emit();return;}
     const remaining=await getQueue();
     if(state!=='error' && navigator.onLine && remaining.length===0){await markServerSync();state='idle';}
     else if(state!=='error'){state='idle';}
