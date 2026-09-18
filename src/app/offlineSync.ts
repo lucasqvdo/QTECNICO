@@ -48,7 +48,13 @@ export async function syncOfflineQueue():Promise<void>{
       try{await syncSignature(item);await removeQueueItem(item.id);}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}
     }
-    if(legacyUploadItems.length){state='error';emit();return;}
+    if(legacyUploadItems.length){
+      for(const item of legacyUploadItems){
+        const message='Mídia legada sem vínculo seguro com OS/atendimento. Preservada no dispositivo; não será reenviada automaticamente para evitar anexação incorreta.';
+        if(item.lastError!==message)await updateQueueFailure(item.id,message);
+      }
+      state='error';emit();return;
+    }
     const remaining=await getQueue();
     if(state!=='error' && navigator.onLine && remaining.length===0){await markServerSync();state='idle';}
     else if(state!=='error'){state='idle';}
