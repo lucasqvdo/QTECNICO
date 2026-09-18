@@ -19,24 +19,41 @@ export async function syncOfflineQueue():Promise<void>{
     const orderItems=queue.filter(i=>i.type==='order_update');
     const photoItems=queue.filter(i=>i.type==='attendance_photo');
     const signatureItems=queue.filter(i=>i.type==='signature_upload');
-    // Uma OS criada offline precisa existir no servidor antes de qualquer PUT,
-    // foto ou assinatura referente a ela.
     for(const item of createItems){
       if(!navigator.onLine)break;
-      try{await syncCreate(item);await removeQueueItem(item.id);}catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao criar OS offline no servidor');state='error';emit();return;}
+      try{await syncCreate(item);await removeQueueItem(item.id);}
+      catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao criar OS offline no servidor');state='error';emit();return;}
     }
     const latestByOrder=new Map<string,QueueItem>();
     for(const item of orderItems)latestByOrder.set(item.orderId,item);
     for(const item of latestByOrder.values()){
       if(!navigator.onLine)break;
-      try{await syncOrder(item);await removeQueueItem(item.id);}catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar OS');state='error';emit();return;}
+      try{await syncOrder(item);await removeQueueItem(item.id);}
+      catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar OS');state='error';emit();return;}
     }
     for(const item of orderItems){if(latestByOrder.get(item.orderId)?.id===item.id)continue;await removeQueueItem(item.id);}
-    for(const item of photoItems){if(!navigator.onLine)break;try{await syncPhoto(item);await removeQueueItem(item.id);}catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar foto');state='error';emit();return;}}
-    for(const item of signatureItems){if(!navigator.onLine)break;try{await syncSignature(item);await removeQueueItem(item.id);}catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}}
+    for(const item of photoItems){
+      if(!navigator.onLine)break;
+      try{await syncPhoto(item);await removeQueueItem(item.id);}
+      catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar foto');state='error';emit();return;}
+    }
+    for(const item of signatureItems){
+      if(!navigator.onLine)break;
+      try{await syncSignature(item);await removeQueueItem(item.id);}
+      catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}
+    }
     if(state!=='error'){await markServerSync();state='idle';}
     emit();
   }finally{running=false;}
 }
-export async function getSyncInfo(){const queue=await getQueue();return{pending:queue.length,lastServerSync:await getLastServerSync(),state};}
+export async function getSyncInfo(){
+  const queue=await getQueue();
+  const failed=queue.filter(item=>Boolean(item.lastError));
+  return{
+    pending:queue.length,
+    lastServerSync:await getLastServerSync(),
+    state,
+    lastError:failed.sort((a,b)=>b.updatedAt-a.updatedAt)[0]?.lastError||''
+  };
+}
 export function startOfflineSync(){if(listenersBound)return;listenersBound=true;window.addEventListener('online',()=>{void syncOfflineQueue();});window.setInterval(()=>{void syncOfflineQueue();},30000);if(navigator.onLine)void syncOfflineQueue();}
