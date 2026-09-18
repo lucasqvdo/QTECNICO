@@ -1,5 +1,5 @@
 import { api } from './api';
-import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
+import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, markQueueManualRecovery, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
 
 let running=false;
 let listenersBound=false;
@@ -41,7 +41,7 @@ export async function syncOfflineQueue():Promise<void>{
     for(const item of orderItems){if(latestByOrder.get(item.orderId)?.id===item.id)continue;await removeQueueItem(item.id);}
     for(const item of photoItems){
       if(!item.orderId||!item.attendanceId){
-        await updateQueueFailure(item.id,'Recuperação manual necessária: OS/atendimento da foto não identificado com segurança.');
+        await markQueueManualRecovery(item.id,'Recuperação manual necessária: OS/atendimento da foto não identificado com segurança.');
         continue;
       }
       if(!navigator.onLine)break;
@@ -55,8 +55,8 @@ export async function syncOfflineQueue():Promise<void>{
     }
     if(legacyUploadItems.length){
       for(const item of legacyUploadItems){
-        const message='Mídia legada sem vínculo seguro com OS/atendimento. Preservada no dispositivo; não será reenviada automaticamente para evitar anexação incorreta.';
-        if(item.lastError!==message)await updateQueueFailure(item.id,message);
+        const message='Recuperação manual necessária: mídia legada sem vínculo seguro com OS/atendimento. Preservada no dispositivo e não será reenviada automaticamente.';
+        await markQueueManualRecovery(item.id,message);
       }
       state='error';emit();return;
     }
