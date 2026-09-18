@@ -1,5 +1,5 @@
 import { api } from './api';
-import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, markServerSync, type QueueItem } from './offlineStore';
+import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
 
 let running=false;
 let listenersBound=false;
@@ -8,8 +8,8 @@ function emit(){window.dispatchEvent(new CustomEvent('qtecnico-sync-state',{deta
 function asFile(item:QueueItem):File{if(!item.file)throw new Error('Arquivo offline não encontrado.');return new File([item.file],item.fileName||'arquivo-offline',{type:item.file.type||'application/octet-stream'});}
 async function syncCreate(item:QueueItem){const saved=await api.createOrder(item.order);await cacheOrders([saved]);}
 async function syncOrder(item:QueueItem){const saved=await api.updateOrder(item.orderId,item.order);await cacheOrders([saved]);}
-async function syncPhoto(item:QueueItem){if(!item.attendanceId)throw new Error('Atendimento da foto não identificado.');const file=asFile(item);const uploaded=await api.uploadPhoto(file,'attendances');await api.registerAttendancePhoto(item.orderId,item.attendanceId,{key:uploaded.key,url:uploaded.url,name:item.fileName||file.name});}
-async function syncSignature(item:QueueItem){const file=asFile(item);const uploaded=await api.uploadPhoto(file,'signatures');const saved=await api.updateOrder(item.orderId,{clientSignature:uploaded.url,clientSignatureKey:uploaded.key,status:'completed'});await cacheOrders([saved]);}
+async function syncPhoto(item:QueueItem){if(!item.attendanceId)throw new Error('Atendimento da foto não identificado.');const file=asFile(item);let uploaded={key:item.uploadedKey||'',url:item.uploadedUrl||''};if(!uploaded.key||!uploaded.url){uploaded=await api.uploadPhoto(file,'attendances');await updateQueueUpload(item.id,uploaded.key,uploaded.url);}await api.registerAttendancePhoto(item.orderId,item.attendanceId,{id:item.photoId,key:uploaded.key,url:uploaded.url,name:item.fileName||file.name});}
+async function syncSignature(item:QueueItem){const file=asFile(item);let uploaded={key:item.uploadedKey||'',url:item.uploadedUrl||''};if(!uploaded.key||!uploaded.url){uploaded=await api.uploadPhoto(file,'signatures');await updateQueueUpload(item.id,uploaded.key,uploaded.url);}const saved=await api.updateOrder(item.orderId,{clientSignature:uploaded.url,clientSignatureKey:uploaded.key,status:'completed'});await cacheOrders([saved]);}
 export async function syncOfflineQueue():Promise<void>{
   if(running||!navigator.onLine)return;
   running=true;state='syncing';emit();
