@@ -10,7 +10,7 @@ const QUEUE = 'sync_queue';
 
 type ScopedRecord = { id:string; accountId:number; legacyUserId?:number; value:any };
 type QueueItem = {
-  id:string; type:'order_create'|'order_update'|'attendance_photo'|'signature_upload'|'legacy_upload'|'invalid'; orderId:string;
+  id:string; type:'order_create'|'order_update'|'order_delete'|'attendance_photo'|'signature_upload'|'legacy_upload'|'invalid'; orderId:string;
   accountId:number; legacyUserId?:number; attendanceId?:string; order:ServiceOrder; createdAt:number; updatedAt:number;
   attempts:number; manualRecovery?:boolean; file?:Blob; fileName?:string; photoId?:string; lastError?:string; uploadedKey?:string; uploadedUrl?:string;
 };
@@ -94,9 +94,13 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
       }
 
       const pendingOrders=new Map<string,ServiceOrder>();
-      for(const item of pending)pendingOrders.set(item.orderId,item.order);
+      const pendingDeletes=new Set<string>();
+      for(const item of pending){
+        if(item.type==='order_delete')pendingDeletes.add(item.orderId);
+        else pendingOrders.set(item.orderId,item.order);
+      }
       for(const order of pendingOrders.values()){
-        os.put({id:accountId+':'+order.id,accountId,value:order});
+        if(!pendingDeletes.has(order.id))os.put({id:accountId+':'+order.id,accountId,value:order});
       }
 
       if(clients){
@@ -124,6 +128,8 @@ export async function cacheClients(clients:Client[]){const accountId=await activ
 async function enqueue(item:Omit<QueueItem,'accountId'>,order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');const scopedId=`${accountId}:${item.id}`;tx.objectStore(QUEUE).put({...item,id:scopedId,accountId});tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
 export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();await enqueue({id:`create:${order.id}`,type:'order_create',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueOrderUpdate(order:ServiceOrder){const now=Date.now();await enqueue({id:`order:${order.id}`,type:'order_update',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
+export async function queueOrderDelete(order:ServiceOrder){const now=Date.now();await enqueue({id:`delete:${order.id}`,type:'order_delete',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
+export async function removeCachedOrder(id:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).delete(`${accountId}:${id}`);await txDone(tx);}
 export async function queueAttendancePhoto(order:ServiceOrder,attendanceId:string,photoId:string,file:Blob,fileName:string){const now=Date.now();await enqueue({id:`photo:${order.id}:${photoId}`,type:'attendance_photo',orderId:order.id,attendanceId,photoId,order,file,fileName,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueSignatureUpload(order:ServiceOrder,file:Blob,fileName:string){const now=Date.now();await enqueue({id:`signature:${order.id}`,type:'signature_upload',orderId:order.id,order,file,fileName,createdAt:now,updatedAt:now,attempts:0},order);}
 function normalizeQueueItem(raw:any):QueueItem{
@@ -132,10 +138,11 @@ function normalizeQueueItem(raw:any):QueueItem{
   const localId=scopedPrefix&&rawId.startsWith(scopedPrefix)?rawId.slice(scopedPrefix.length):rawId;
   const rawType=raw?.type;
   const inferredType:QueueItem['type']=
-    rawType==='order_create'||rawType==='order_update'||rawType==='attendance_photo'||rawType==='signature_upload'
+    rawType==='order_create'||rawType==='order_update'||rawType==='order_delete'||rawType==='attendance_photo'||rawType==='signature_upload'
       ?rawType
       :localId.startsWith('create:')?'order_create'
       :localId.startsWith('order:')?'order_update'
+      :localId.startsWith('delete:')?'order_delete'
       :localId.startsWith('photo:')?'attendance_photo'
       :localId.startsWith('signature:')?'signature_upload'
       :localId.startsWith('update:order:')?'order_update'
@@ -146,7 +153,7 @@ function normalizeQueueItem(raw:any):QueueItem{
   if(!inferredOrderId&&localId.startsWith('update:order:')){const parts=localId.split(':');if(parts[2])inferredOrderId=parts[2];}
   if(!inferredOrderId){
     const parts=localId.split(':');
-    if((parts[0]==='create'||parts[0]==='order'||parts[0]==='signature')&&parts[1])inferredOrderId=parts[1];
+    if((parts[0]==='create'||parts[0]==='order'||parts[0]==='delete'||parts[0]==='signature')&&parts[1])inferredOrderId=parts[1];
     if(parts[0]==='photo'&&parts[1])inferredOrderId=parts[1];
     if(parts[0]==='attendance-photo'&&parts[1]){/* photo id only; order may be recovered from the cached order */}
   }
