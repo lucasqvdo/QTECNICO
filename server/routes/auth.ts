@@ -46,7 +46,7 @@ async function sendPasswordResetEmail(email: string, code: string) {
 }
 
 function publicUser(user: any) {
-  return { id: user.id, name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null, isAdmin: Boolean(user.is_admin) };
+  return { id: user.id, accountId: user.account_id == null ? null : Number(user.account_id), name: user.name, role: user.role || '', phone: user.phone || '', email: user.email, photoUrl: user.photo_url || null, isAdmin: Boolean(user.is_admin) };
 }
 
 router.post('/login', authRateLimit, async (req, res) => {
@@ -98,7 +98,7 @@ router.post('/register', authRateLimit, async (req, res) => {
     const accountId = accountResult.rows[0].id;
     const hash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
-      `INSERT INTO users (name, role, phone, email, password_hash, is_admin, account_id) VALUES ($1, $2, $3, $4, $5, TRUE, $6) RETURNING id, name, role, phone, email, photo_url, is_admin`,
+      `INSERT INTO users (name, role, phone, email, password_hash, is_admin, account_id) VALUES ($1, $2, $3, $4, $5, TRUE, $6) RETURNING id, account_id, name, role, phone, email, photo_url, is_admin`,
       [adminName, 'Administrador', company.phone || '', normalizedEmail, hash, accountId],
     );
     const user = userResult.rows[0];
