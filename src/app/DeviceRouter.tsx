@@ -39,7 +39,7 @@ export default function DeviceRouter() {
       try {
         const cached = await getOfflineSnapshot();
         if (!mounted) return;
-        if (cached.user) {
+        if (cached.user && Number.isInteger(cached.user.accountId)) {
           finish(cached.user.isAdmin ? 'admin' : 'technician');
           return;
         }
