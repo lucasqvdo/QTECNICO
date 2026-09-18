@@ -158,41 +158,46 @@ function normalizeQueueItem(raw:any):QueueItem{
 }
 export async function getQueue():Promise<QueueItem[]>{
   const accountId=await activeAccountId(),db=await openDb();
-  return new Promise((resolve,reject)=>{
-    const tx=db.transaction([QUEUE,ORDERS],'readwrite');
-    const queueStore=tx.objectStore(QUEUE),orderStore=tx.objectStore(ORDERS);
-    const queueReq=queueStore.getAll(),ordersReq=orderStore.getAll();
-    queueReq.onsuccess=()=>{
-      const rows=(queueReq.result||[]).filter((x:any)=>Number(x.accountId)===accountId);
-      const orders=(ordersReq.result||[]).filter((x:any)=>Number(x.accountId)===accountId).map((x:any)=>x.value||x) as ServiceOrder[];
-      const normalizedRows=rows.map((raw:any)=>{
-        const normalized=normalizeQueueItem(raw);
-        if(normalized.type==='attendance_photo'&&!normalized.orderId){
-          const photoId=normalized.photoId||String(normalized.id).split(':')[1]||'';
-          if(photoId){
-            for(const order of orders){
-              const attendance=order.attendances?.find(a=>(a.photos||[]).some(p=>p.id===photoId));
-              if(attendance){
-                normalized.orderId=order.id;
-                normalized.attendanceId=normalized.attendanceId||attendance.id;
-                normalized.order=order;
-                normalized.photoId=normalized.photoId||photoId;
-                break;
-              }
-            }
+  const rawRows=await new Promise<any[]>((resolve,reject)=>{
+    const tx=db.transaction([QUEUE,ORDERS],'readonly');
+    const queueReq=tx.objectStore(QUEUE).getAll();
+    const orderReq=tx.objectStore(ORDERS).getAll();
+    tx.oncomplete=()=>resolve([queueReq.result||[],orderReq.result||[]] as any);
+    tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler a fila offline.'));
+    tx.onabort=()=>reject(tx.error||new Error('Leitura da fila offline foi cancelada.'));
+  });
+  const rows=(rawRows[0]||[]).filter((x:any)=>Number(x.accountId)===accountId);
+  const orders=(rawRows[1]||[]).filter((x:any)=>Number(x.accountId)===accountId).map((x:any)=>x.value||x) as ServiceOrder[];
+  const normalizedRows=rows.map((raw:any)=>{
+    const normalized=normalizeQueueItem(raw);
+    if(normalized.type==='attendance_photo'&&!normalized.orderId){
+      const photoId=normalized.photoId||String(normalized.id).split(':')[1]||'';
+      if(photoId){
+        for(const order of orders){
+          const attendance=order.attendances?.find(a=>(a.photos||[]).some(p=>p.id===photoId));
+          if(attendance){
+            normalized.orderId=order.id;
+            normalized.attendanceId=normalized.attendanceId||attendance.id;
+            normalized.order=order;
+            normalized.photoId=normalized.photoId||photoId;
+            break;
           }
         }
-        return normalized;
-      });
-      for(let i=0;i<rows.length;i++){
-        const raw=rows[i],normalized=normalizedRows[i];
-        const changed=raw.type!==normalized.type||raw.orderId!==normalized.orderId||raw.attendanceId!==normalized.attendanceId||raw.createdAt!==normalized.createdAt||raw.updatedAt!==normalized.updatedAt||raw.attempts!==normalized.attempts;
-        if(changed)queueStore.put(normalized);
       }
-      resolve(normalizedRows);
-    };
-    tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler a fila offline.'));
+    }
+    return normalized;
   });
+  const changedRows=rows.map((raw:any,i:number)=>{
+    const normalized=normalizedRows[i];
+    return raw.type!==normalized.type||raw.orderId!==normalized.orderId||raw.attendanceId!==normalized.attendanceId||raw.createdAt!==normalized.createdAt||raw.updatedAt!==normalized.updatedAt||raw.attempts!==normalized.attempts;
+  });
+  if(changedRows.some(Boolean)){
+    const tx=db.transaction(QUEUE,'readwrite');
+    const store=tx.objectStore(QUEUE);
+    for(let i=0;i<rows.length;i++)if(changedRows[i])store.put(normalizedRows[i]);
+    await txDone(tx);
+  }
+  return normalizedRows;
 }
 export async function updateQueueUpload(id:string,uploadedKey:string,uploadedUrl:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,uploadedKey,uploadedUrl,updatedAt:Date.now()});};await txDone(tx);}
 export async function updateQueueFailure(id:string,error:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,attempts:item.attempts+1,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
