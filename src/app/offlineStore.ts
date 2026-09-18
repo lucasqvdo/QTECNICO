@@ -126,6 +126,13 @@ export async function updateQueueFailure(id: string, error: string): Promise<voi
   await txDone(tx);
 }
 
+export async function clearQueue(): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(QUEUE, 'readwrite');
+  tx.objectStore(QUEUE).clear();
+  await txDone(tx);
+}
+
 export async function removeQueueItem(id: string): Promise<void> {
   const db = await openDb();
   const tx = db.transaction(QUEUE, 'readwrite');
