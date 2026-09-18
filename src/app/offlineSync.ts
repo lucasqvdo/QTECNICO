@@ -8,6 +8,7 @@ function emit(){window.dispatchEvent(new CustomEvent('qtecnico-sync-state',{deta
 function asFile(item:QueueItem):File{if(!item.file)throw new Error('Arquivo offline não encontrado.');return new File([item.file],item.fileName||'arquivo-offline',{type:item.file.type||'application/octet-stream'});}
 async function syncCreate(item:QueueItem){const saved=await api.createOrder(item.order);await cacheOrders([saved]);}
 async function syncOrder(item:QueueItem){const saved=await api.updateOrder(item.orderId,item.order);await cacheOrders([saved]);}
+async function syncDelete(item:QueueItem){await api.deleteOrder(item.orderId);}
 async function syncPhoto(item:QueueItem){if(!item.attendanceId)throw new Error('Atendimento da foto não identificado.');const file=asFile(item);let uploaded={key:item.uploadedKey||'',url:item.uploadedUrl||''};if(!uploaded.key||!uploaded.url){uploaded=await api.uploadPhoto(file,'attendances');await updateQueueUpload(item.id,uploaded.key,uploaded.url);}await api.registerAttendancePhoto(item.orderId,item.attendanceId,{id:item.photoId,key:uploaded.key,url:uploaded.url,name:item.fileName||file.name});}
 async function syncSignature(item:QueueItem){const file=asFile(item);let uploaded={key:item.uploadedKey||'',url:item.uploadedUrl||''};if(!uploaded.key||!uploaded.url){uploaded=await api.uploadPhoto(file,'signatures');await updateQueueUpload(item.id,uploaded.key,uploaded.url);}const saved=await api.updateOrder(item.orderId,{clientSignature:uploaded.url,clientSignatureKey:uploaded.key,status:'completed'});await cacheOrders([saved]);}
 export async function syncOfflineQueue():Promise<void>{
@@ -20,6 +21,7 @@ export async function syncOfflineQueue():Promise<void>{
     const recoverableQueue=queue.filter(i=>!i.manualRecovery);
     const createItems=recoverableQueue.filter(i=>i.type==='order_create');
     const orderItems=recoverableQueue.filter(i=>i.type==='order_update');
+    const deleteItems=recoverableQueue.filter(i=>i.type==='order_delete');
     const photoItems=recoverableQueue.filter(i=>i.type==='attendance_photo');
     const signatureItems=recoverableQueue.filter(i=>i.type==='signature_upload');
     const legacyUploadItems=queue.filter(i=>i.type==='legacy_upload');
@@ -41,6 +43,11 @@ export async function syncOfflineQueue():Promise<void>{
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar OS');state='error';emit();return;}
     }
     for(const item of orderItems){if(latestByOrder.get(item.orderId)?.id===item.id)continue;await removeQueueItem(item.id);}
+    for(const item of deleteItems){
+      if(!navigator.onLine)break;
+      try{await markQueueAttempt(item.id);await syncDelete(item);await removeQueueItem(item.id);didSync=true;}
+      catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao excluir OS no servidor');state='error';emit();return;}
+    }
     for(const item of photoItems){
       if(!item.orderId||!item.attendanceId){
         await markQueueManualRecovery(item.id,'Recuperação manual necessária: OS/atendimento da foto não identificado com segurança.');
