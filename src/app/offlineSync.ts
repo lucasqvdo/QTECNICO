@@ -1,5 +1,5 @@
 import { api } from './api';
-import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, markQueueManualRecovery, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
+import { cacheOrders, getQueue, getLastServerSync, removeQueueItem, updateQueueFailure, markQueueAttempt, markQueueManualRecovery, updateQueueUpload, markServerSync, type QueueItem } from './offlineStore';
 
 let running=false;
 let listenersBound=false;
@@ -30,14 +30,14 @@ export async function syncOfflineQueue():Promise<void>{
     if(invalidItems.length){state='error';emit();return;}
     for(const item of createItems){
       if(!navigator.onLine)break;
-      try{await syncCreate(item);await removeQueueItem(item.id);didSync=true;}
+      try{await markQueueAttempt(item.id);await syncCreate(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao criar OS offline no servidor');state='error';emit();return;}
     }
     const latestByOrder=new Map<string,QueueItem>();
     for(const item of orderItems)latestByOrder.set(item.orderId,item);
     for(const item of latestByOrder.values()){
       if(!navigator.onLine)break;
-      try{await syncOrder(item);await removeQueueItem(item.id);didSync=true;}
+      try{await markQueueAttempt(item.id);await syncOrder(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar OS');state='error';emit();return;}
     }
     for(const item of orderItems){if(latestByOrder.get(item.orderId)?.id===item.id)continue;await removeQueueItem(item.id);}
@@ -47,12 +47,12 @@ export async function syncOfflineQueue():Promise<void>{
         continue;
       }
       if(!navigator.onLine)break;
-      try{await syncPhoto(item);await removeQueueItem(item.id);didSync=true;}
+      try{await markQueueAttempt(item.id);await syncPhoto(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar foto');state='error';emit();return;}
     }
     for(const item of signatureItems){
       if(!navigator.onLine)break;
-      try{await syncSignature(item);await removeQueueItem(item.id);didSync=true;}
+      try{await markQueueAttempt(item.id);await syncSignature(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}
     }
     if(legacyUploadItems.length){
