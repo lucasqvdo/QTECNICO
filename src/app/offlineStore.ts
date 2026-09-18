@@ -138,7 +138,7 @@ function normalizeQueueItem(raw:any):QueueItem{
       :localId.startsWith('order:')?'order_update'
       :localId.startsWith('photo:')?'attendance_photo'
       :localId.startsWith('signature:')?'signature_upload'
-      :'signature_upload';
+      :'invalid';
   let inferredOrderId=String(raw?.orderId??raw?.order?.id??'');
   if(!inferredOrderId){
     const parts=localId.split(':');
