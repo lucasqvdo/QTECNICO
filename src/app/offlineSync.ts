@@ -14,6 +14,7 @@ export async function syncOfflineQueue():Promise<void>{
   if(running||!navigator.onLine)return;
   running=true;state='syncing';emit();
   try{
+    await clearLegacyRecoveryItems();
     const queue=(await getQueue()).sort((a,b)=>a.createdAt-b.createdAt);
     const recoverableQueue=queue.filter(i=>!i.manualRecovery);
     const createItems=recoverableQueue.filter(i=>i.type==='order_create');
