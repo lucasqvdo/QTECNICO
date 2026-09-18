@@ -7,6 +7,7 @@ type State='online'|'offline'|'syncing'|'error';
 function formatTime(value:Date|null){return value?value.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
 export default function ConnectivityStatus(){
   const[online,setOnline]=useState(()=>navigator.onLine);
+  const[serverAvailable,setServerAvailable]=useState(false);
   const[state,setState]=useState<State>(()=>navigator.onLine?'syncing':'offline');
   const[pending,setPending]=useState(0);
   const[lastSync,setLastSync]=useState<Date|null>(null);
@@ -14,13 +15,14 @@ export default function ConnectivityStatus(){
   const[open,setOpen]=useState(false);
 
   const refresh=async()=>{
-    if(!navigator.onLine){setOnline(false);setState('offline');return;}
+    if(!navigator.onLine){setOnline(false);setServerAvailable(false);setState('offline');return;}
     setOnline(true);
     try{
       const info=await getSyncInfo();
       setPending(info.pending);
       if(info.state==='syncing'){setState('syncing');setError('');return;}
       await api.getMe();
+      setServerAvailable(true);
       const after=await getSyncInfo();
       setPending(after.pending);
       if(after.state==='error'){
@@ -37,6 +39,7 @@ export default function ConnectivityStatus(){
         setError('');
       }
     }catch(e){
+      setServerAvailable(false);
       setState('error');
       setError(e instanceof Error?e.message:'Não foi possível confirmar a conexão com o servidor.');
     }
@@ -53,7 +56,7 @@ export default function ConnectivityStatus(){
   useEffect(()=>{
     startOfflineSync();
     const onOnline=()=>{setOnline(true);void refresh();};
-    const onOffline=()=>{setOnline(false);setState('offline');};
+    const onOffline=()=>{setOnline(false);setServerAvailable(false);setState('offline');};
     const onSync=(e:Event)=>{
       const detail=(e as CustomEvent).detail;
       setState(detail?.state==='syncing'?'syncing':detail?.state==='error'?'error':navigator.onLine?'online':'offline');
@@ -83,7 +86,7 @@ export default function ConnectivityStatus(){
       <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-900">Status da conexão</p><p className="mt-0.5 text-xs text-slate-500">Estado atual do QTECNICO</p></div><button type="button" onClick={()=>setOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100" aria-label="Fechar"><X size={16}/></button></div>
       <div className="mt-4 space-y-2 text-sm">
         <div className="flex items-center justify-between"><span className="text-slate-500">Internet</span><span className={`font-semibold ${online?'text-emerald-600':'text-red-600'}`}>{online?'Conectada':'Desconectada'}</span></div>
-        <div className="flex items-center justify-between"><span className="text-slate-500">Servidor</span><span className={`font-semibold ${state==='error'||state==='offline'?'text-red-600':'text-emerald-600'}`}>{state==='error'?'Indisponível':state==='offline'?'Sem conexão':'Disponível'}</span></div>
+        <div className="flex items-center justify-between"><span className="text-slate-500">Servidor</span><span className={`font-semibold ${state==='error'||state==='offline'?'text-red-600':'text-emerald-600'}`}>{!online||state==='offline'?'Sem conexão':serverAvailable?'Disponível':'Indisponível'}</span></div>
         <div className="flex items-center justify-between"><span className="text-slate-500">Fila local</span><span className={`font-semibold ${pending?'text-amber-600':'text-emerald-600'}`}>{pending?`${pending} pendente${pending===1?'':'s'}`:'Vazia'}</span></div>
         <div className="flex items-center justify-between"><span className="text-slate-500">Última sincronização</span><span className="font-semibold text-slate-700">{formatTime(lastSync)}</span></div>
       </div>
