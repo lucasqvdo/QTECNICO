@@ -14,6 +14,7 @@ export async function syncOfflineQueue():Promise<void>{
   if(running||!navigator.onLine)return;
   running=true;state='syncing';emit();
   try{
+    let didSync=false;
     await clearLegacyRecoveryItems();
     const queue=(await getQueue()).sort((a,b)=>a.createdAt-b.createdAt);
     const recoverableQueue=queue.filter(i=>!i.manualRecovery);
@@ -29,14 +30,14 @@ export async function syncOfflineQueue():Promise<void>{
     if(invalidItems.length){state='error';emit();return;}
     for(const item of createItems){
       if(!navigator.onLine)break;
-      try{await syncCreate(item);await removeQueueItem(item.id);}
+      try{await syncCreate(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao criar OS offline no servidor');state='error';emit();return;}
     }
     const latestByOrder=new Map<string,QueueItem>();
     for(const item of orderItems)latestByOrder.set(item.orderId,item);
     for(const item of latestByOrder.values()){
       if(!navigator.onLine)break;
-      try{await syncOrder(item);await removeQueueItem(item.id);}
+      try{await syncOrder(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar OS');state='error';emit();return;}
     }
     for(const item of orderItems){if(latestByOrder.get(item.orderId)?.id===item.id)continue;await removeQueueItem(item.id);}
@@ -46,12 +47,12 @@ export async function syncOfflineQueue():Promise<void>{
         continue;
       }
       if(!navigator.onLine)break;
-      try{await syncPhoto(item);await removeQueueItem(item.id);}
+      try{await syncPhoto(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar foto');state='error';emit();return;}
     }
     for(const item of signatureItems){
       if(!navigator.onLine)break;
-      try{await syncSignature(item);await removeQueueItem(item.id);}
+      try{await syncSignature(item);await removeQueueItem(item.id);didSync=true;}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}
     }
     if(legacyUploadItems.length){
@@ -62,7 +63,7 @@ export async function syncOfflineQueue():Promise<void>{
       state='error';emit();return;
     }
     const remaining=(await getQueue()).filter(i=>!i.manualRecovery);
-    if(state!=='error' && navigator.onLine && remaining.length===0){await markServerSync();state='idle';}
+    if(state!=='error' && navigator.onLine && remaining.length===0){if(didSync)await markServerSync();state='idle';}
     else if(state!=='error'){state='idle';}
     emit();
   }finally{running=false;}
