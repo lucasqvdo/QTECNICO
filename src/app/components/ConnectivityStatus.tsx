@@ -1,11 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, X, AlertCircle, Clock3 } from 'lucide-react';
+import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, X, AlertCircle, Clock3, Trash2 } from 'lucide-react';
 import { api, checkServerHealth } from '../api';
 import { getSyncInfo, startOfflineSync, syncOfflineQueue } from '../offlineSync';
-import { getQueue, type QueueItem } from '../offlineStore';
+import { getQueue, removeQueueItem, type QueueItem } from '../offlineStore';
 type State='online'|'offline'|'syncing'|'error';
 function formatTime(value:Date|null){return value?value.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
-function typeLabel(type:QueueItem['type']){return type==='order_create'?'Criar OS':type==='order_update'?'Atualizar OS':type==='attendance_photo'?'Foto do atendimento':type==='signature_upload'?'Assinatura do cliente':type==='legacy_upload'?'Mídia legada':'Operação inválida';}
+function typeLabel(type:QueueItem['type']){
+  switch(type){
+    case 'order_create': return 'Criar OS';
+    case 'order_update': return 'Atualizar OS';
+    case 'order_delete': return 'Excluir OS';
+    case 'attendance_photo': return 'Foto do atendimento';
+    case 'signature_upload': return 'Assinatura do cliente';
+    case 'client_create': return 'Criar cliente';
+    case 'client_update': return 'Atualizar cliente';
+    case 'client_delete': return 'Excluir cliente';
+    case 'legacy_upload': return 'Mídia legada';
+    default: return 'Operação inválida';
+  }
+}
 export default function ConnectivityStatus(){
   const[online,setOnline]=useState(()=>navigator.onLine);
   const[serverAvailable,setServerAvailable]=useState(false);
@@ -36,7 +49,7 @@ export default function ConnectivityStatus(){
     {queueOpen&&<div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true">
       <div className="max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 p-4"><div><p className="text-base font-bold text-slate-900">Operações pendentes</p><p className="text-xs text-slate-500">{queue.length} item(ns) na fila local</p></div><button type="button" onClick={()=>setQueueOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Fechar"><X size={18}/></button></div>
-        <div className="max-h-[65vh] overflow-y-auto p-4">{loadingQueue?<div className="py-10 text-center text-sm text-slate-500">Carregando fila local…</div>:queue.length===0?<div className="py-10 text-center text-sm text-emerald-600">Fila vazia. Tudo sincronizado.</div>:<div className="space-y-3">{queue.map(item=>{const orderId=item.orderId||item.order?.id||'Não identificado';const updatedAt=Number(item.updatedAt);const updatedLabel=Number.isFinite(updatedAt)&&updatedAt>0?new Date(updatedAt).toLocaleString('pt-BR'):'Não informado';const attempts=Number.isFinite(Number(item.attempts))?Number(item.attempts):0;return <div key={item.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-slate-900">{typeLabel(item.type)}</p><p className="mt-0.5 text-xs text-slate-500">OS: {orderId}</p><p className="mt-0.5 text-[10px] text-slate-400 break-all">Fila: {item.id}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.manualRecovery?'bg-orange-50 text-orange-700':item.lastError?'bg-red-50 text-red-700':'bg-amber-50 text-amber-700'}`}>{item.manualRecovery?'Recuperação manual':item.lastError?'Com erro':'Pendente'}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600"><div><span className="text-slate-400">Tentativas:</span> {attempts}</div><div><span className="text-slate-400">Atualizado:</span> {updatedLabel}</div></div>{item.lastError?<div className="mt-2 rounded-lg bg-red-50 p-2.5 text-xs leading-relaxed text-red-700"><div className="mb-1 flex items-center gap-1 font-semibold"><AlertCircle size={13}/>Erro</div>{item.lastError}</div>:<div className="mt-2 flex items-center gap-1 text-xs text-slate-500"><Clock3 size={13}/>Aguardando sincronização</div>}</div>})}</div>}</div>
+        <div className="max-h-[65vh] overflow-y-auto p-4">{loadingQueue?<div className="py-10 text-center text-sm text-slate-500">Carregando fila local…</div>:queue.length===0?<div className="py-10 text-center text-sm text-emerald-600">Fila vazia. Tudo sincronizado.</div>:<div className="space-y-3">{queue.map(item=>{const orderId=item.orderId||item.order?.id;const clientName=item.client?.name||item.clientId;const targetLabel=clientName?`Cliente: ${clientName}`:orderId?`OS: ${orderId}`:'Geral';const updatedAt=Number(item.updatedAt);const updatedLabel=Number.isFinite(updatedAt)&&updatedAt>0?new Date(updatedAt).toLocaleString('pt-BR'):'Não informado';const attempts=Number.isFinite(Number(item.attempts))?Number(item.attempts):0;return <div key={item.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-slate-900">{typeLabel(item.type)}</p><p className="mt-0.5 text-xs text-slate-500">{targetLabel}</p><p className="mt-0.5 text-[10px] text-slate-400 break-all">Fila: {item.id}</p></div><div className="flex items-center gap-1.5"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.manualRecovery?'bg-orange-50 text-orange-700':item.lastError?'bg-red-50 text-red-700':'bg-amber-50 text-amber-700'}`}>{item.manualRecovery?'Recuperação manual':item.lastError?'Com erro':'Pendente'}</span>{(item.lastError||item.manualRecovery)&&<button type="button" onClick={async()=>{await removeQueueItem(item.id);await loadQueue();}} title="Descartar item da fila" className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"><Trash2 size={14}/></button>}</div></div><div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600"><div><span className="text-slate-400">Tentativas:</span> {attempts}</div><div><span className="text-slate-400">Atualizado:</span> {updatedLabel}</div></div>{item.lastError?<div className="mt-2 rounded-lg bg-red-50 p-2.5 text-xs leading-relaxed text-red-700"><div className="mb-1 flex items-center gap-1 font-semibold"><AlertCircle size={13}/>Erro</div>{item.lastError}</div>:<div className="mt-2 flex items-center gap-1 text-xs text-slate-500"><Clock3 size={13}/>Aguardando sincronização</div>}</div>})}</div>}</div>
         <div className="flex gap-2 border-t border-slate-200 p-4"><button type="button" onClick={()=>void loadQueue()} disabled={loadingQueue} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RefreshCw size={13} className="mr-1 inline"/>Atualizar lista</button><button type="button" onClick={()=>void verifyAndSync()} disabled={state==='syncing'} className="flex-1 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">Sincronizar agora</button></div>
       </div>
     </div>}

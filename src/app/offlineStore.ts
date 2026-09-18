@@ -1,5 +1,5 @@
 import type { ServiceOrder, AttendancePhoto, Client } from './types';
-import type { UserProfile } from './api';
+import type { UserProfile, TeamMember } from './api';
 
 const DB_NAME = 'qtecnico-offline';
 const DB_VERSION = 4;
@@ -9,10 +9,26 @@ const META = 'meta';
 const QUEUE = 'sync_queue';
 
 type ScopedRecord = { id:string; accountId:number; legacyUserId?:number; value:any };
-type QueueItem = {
-  id:string; type:'order_create'|'order_update'|'order_delete'|'attendance_photo'|'signature_upload'|'legacy_upload'|'invalid'; orderId:string;
-  accountId:number; legacyUserId?:number; attendanceId?:string; order:ServiceOrder; createdAt:number; updatedAt:number;
-  attempts:number; manualRecovery?:boolean; file?:Blob; fileName?:string; photoId?:string; lastError?:string; uploadedKey?:string; uploadedUrl?:string;
+export type QueueItem = {
+  id:string;
+  type:'order_create'|'order_update'|'order_delete'|'attendance_photo'|'signature_upload'|'client_create'|'client_update'|'client_delete'|'legacy_upload'|'invalid';
+  orderId:string;
+  accountId:number;
+  legacyUserId?:number;
+  attendanceId?:string;
+  order?:ServiceOrder;
+  client?:Client;
+  clientId?:string;
+  createdAt:number;
+  updatedAt:number;
+  attempts:number;
+  manualRecovery?:boolean;
+  file?:Blob;
+  fileName?:string;
+  photoId?:string;
+  lastError?:string;
+  uploadedKey?:string;
+  uploadedUrl?:string;
 };
 export type OfflineSnapshot={orders:ServiceOrder[];clients:Client[];user:UserProfile|null};
 
@@ -125,6 +141,14 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
 }async function putOrder(order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
 export async function cacheOrders(orders:ServiceOrder[]){for(const order of orders)await putOrder(order);}
 export async function cacheClients(clients:Client[]){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite'),s=tx.objectStore(CLIENTS),existingReq=s.getAll();existingReq.onsuccess=()=>{for(const existing of existingReq.result||[])if(Number(existing.accountId)===accountId)s.delete(existing.id);for(const c of clients)s.put({id:`${accountId}:${c.id}`,accountId,value:c});};await txDone(tx);}
+export async function putClient(client:Client){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).put({id:`${accountId}:${client.id}`,accountId,value:client});await txDone(tx);}
+export async function removeCachedClient(id:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).delete(`${accountId}:${id}`);await txDone(tx);}
+export async function queueClientCreate(client:Client){const accountId=await activeAccountId(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_create:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_create',orderId:'',clientId:client.id,client,accountId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${client.id}`,accountId,value:client});await txDone(tx);}
+export async function queueClientUpdate(client:Client){const accountId=await activeAccountId(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_update:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_update',orderId:'',clientId:client.id,client,accountId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${client.id}`,accountId,value:client});await txDone(tx);}
+export async function queueClientDelete(clientId:string){const accountId=await activeAccountId(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_delete:${clientId}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_delete',orderId:'',clientId,accountId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).delete(`${accountId}:${clientId}`);await txDone(tx);}
+export async function cacheTeam(team:TeamMember[]){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`team:${accountId}`,value:team});await txDone(tx);}
+export async function getCachedTeam():Promise<TeamMember[]>{try{const accountId=await activeAccountId(),db=await openDb();return new Promise((resolve)=>{const tx=db.transaction(META,'readonly'),req=tx.objectStore(META).get(`team:${accountId}`);tx.oncomplete=()=>resolve(Array.isArray(req.result?.value)?req.result.value:[]);tx.onerror=()=>resolve([]);});}catch{return[];}}
+export async function updateCachedPhoto(orderId:string,attendanceId:string,photoId:string,uploadedKey:string,uploadedUrl:string){try{const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite'),s=tx.objectStore(ORDERS),req=s.get(`${accountId}:${orderId}`);req.onsuccess=()=>{const row=req.result;if(row&&row.value){const o=row.value as ServiceOrder;const nextAtts=(o.attendances||[]).map(a=>{if(a.id!==attendanceId)return a;return{...a,photos:(a.photos||[]).map(p=>p.id===photoId?{...p,key:uploadedKey,dataUrl:uploadedUrl}:p)};});s.put({...row,value:{...o,attendances:nextAtts}});}};await txDone(tx);}catch(e){console.warn('Não foi possível atualizar foto no cache offline:',e);}}
 async function enqueue(item:Omit<QueueItem,'accountId'>,order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');const scopedId=`${accountId}:${item.id}`;tx.objectStore(QUEUE).put({...item,id:scopedId,accountId});tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
 export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();await enqueue({id:`create:${order.id}`,type:'order_create',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueOrderUpdate(order:ServiceOrder){const now=Date.now();await enqueue({id:`order:${order.id}`,type:'order_update',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
@@ -138,11 +162,14 @@ function normalizeQueueItem(raw:any):QueueItem{
   const localId=scopedPrefix&&rawId.startsWith(scopedPrefix)?rawId.slice(scopedPrefix.length):rawId;
   const rawType=raw?.type;
   const inferredType:QueueItem['type']=
-    rawType==='order_create'||rawType==='order_update'||rawType==='order_delete'||rawType==='attendance_photo'||rawType==='signature_upload'
+    rawType==='order_create'||rawType==='order_update'||rawType==='order_delete'||rawType==='attendance_photo'||rawType==='signature_upload'||rawType==='client_create'||rawType==='client_update'||rawType==='client_delete'
       ?rawType
       :localId.startsWith('create:')?'order_create'
       :localId.startsWith('order:')?'order_update'
       :localId.startsWith('delete:')?'order_delete'
+      :localId.startsWith('client_create:')?'client_create'
+      :localId.startsWith('client_update:')?'client_update'
+      :localId.startsWith('client_delete:')?'client_delete'
       :localId.startsWith('photo:')?'attendance_photo'
       :localId.startsWith('signature:')?'signature_upload'
       :localId.startsWith('update:order:')?'order_update'
@@ -150,6 +177,7 @@ function normalizeQueueItem(raw:any):QueueItem{
       :localId.startsWith('upload:offline/')?'legacy_upload'
       :'invalid';
   let inferredOrderId=String(raw?.orderId??raw?.order?.id??'');
+  let inferredClientId=String(raw?.clientId??raw?.client?.id??'');
   if(!inferredOrderId&&localId.startsWith('update:order:')){const parts=localId.split(':');if(parts[2])inferredOrderId=parts[2];}
   if(!inferredOrderId){
     const parts=localId.split(':');
@@ -157,11 +185,15 @@ function normalizeQueueItem(raw:any):QueueItem{
     if(parts[0]==='photo'&&parts[1])inferredOrderId=parts[1];
     if(parts[0]==='attendance-photo'&&parts[1]){/* photo id only; order may be recovered from the cached order */}
   }
+  if(!inferredClientId){
+    const parts=localId.split(':');
+    if((parts[0]==='client_create'||parts[0]==='client_update'||parts[0]==='client_delete')&&parts[1])inferredClientId=parts[1];
+  }
   const created=Number(raw?.createdAt),updated=Number(raw?.updatedAt);
   const createdAt=Number.isFinite(created)&&created>0?created:Number.isFinite(updated)&&updated>0?updated:0;
   const updatedAt=Number.isFinite(updated)&&updated>0?updated:createdAt;
   const attempts=Number(raw?.attempts);
-  return {...raw,id:rawId,type:inferredType,orderId:inferredOrderId,accountId:Number(raw?.accountId),createdAt,updatedAt,attempts:Number.isFinite(attempts)&&attempts>=0?attempts:0} as QueueItem;
+  return {...raw,id:rawId,type:inferredType,orderId:inferredOrderId,clientId:inferredClientId,accountId:Number(raw?.accountId),createdAt,updatedAt,attempts:Number.isFinite(attempts)&&attempts>=0?attempts:0} as QueueItem;
 }
 export async function getQueue():Promise<QueueItem[]>{
   const accountId=await activeAccountId(),db=await openDb();
