@@ -21,6 +21,8 @@ type QueueItem = {
   fileName?: string;
   photoId?: string;
   lastError?: string;
+  uploadedKey?: string;
+  uploadedUrl?: string;
 };
 
 export type OfflineSnapshot = { orders: ServiceOrder[]; clients: Client[]; user: UserProfile | null };
@@ -160,6 +162,18 @@ export async function getQueue(): Promise<QueueItem[]> {
     tx.oncomplete = () => resolve((req.result || []) as QueueItem[]);
     tx.onerror = () => reject(tx.error || new Error('Não foi possível ler a fila offline.'));
   });
+}
+
+export async function updateQueueUpload(id: string, uploadedKey: string, uploadedUrl: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(QUEUE, 'readwrite');
+  const store = tx.objectStore(QUEUE);
+  const req = store.get(id);
+  req.onsuccess = () => {
+    const item = req.result as QueueItem | undefined;
+    if (item) store.put({ ...item, uploadedKey, uploadedUrl, updatedAt: Date.now() });
+  };
+  await txDone(tx);
 }
 
 export async function updateQueueFailure(id: string, error: string): Promise<void> {
