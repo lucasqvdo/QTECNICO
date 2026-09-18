@@ -17,7 +17,7 @@ export interface DashboardSummary{period:string;stats:{total:number;pending:numb
 type AuthResponse={user:UserProfile;token?:never};
 const fileToDataUrl=(file:Blob):Promise<string>=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(reader.error||new Error('Não foi possível armazenar a imagem localmente.'));reader.readAsDataURL(file);});
 const isOfflineFailure=(error:unknown)=>!navigator.onLine||error instanceof TypeError||((error as any)?.name==='AbortError');
-const localOrderId=()=>`OFF-${Date.now()}-${Math.random().toString(36).slice(2,7).toUpperCase()}`;
+const localOrderId=()=>{const now=new Date();const prefix=`OS-${String(now.getFullYear()).slice(2)}${String(now.getMonth()+1).padStart(2,'0')}`;return `${prefix}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;};
 export const api={
  login:async(email:string,password:string)=>{const result=await request<AuthResponse>('/auth/login',{method:'POST',body:JSON.stringify({email,password})});await cacheUser(result.user);notifyAuthenticated();return result;},
  register:async(name:string,email:string,password:string)=>{const result=await request<AuthResponse>('/auth/register',{method:'POST',body:JSON.stringify({name,email,password})});await cacheUser(result.user);notifyAuthenticated();return result;},
