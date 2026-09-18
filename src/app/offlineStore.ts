@@ -10,7 +10,7 @@ const QUEUE = 'sync_queue';
 
 type ScopedRecord = { id:string; accountId:number; legacyUserId?:number; value:any };
 type QueueItem = {
-  id:string; type:'order_create'|'order_update'|'attendance_photo'|'signature_upload'|'invalid'; orderId:string;
+  id:string; type:'order_create'|'order_update'|'attendance_photo'|'signature_upload'|'legacy_upload'|'invalid'; orderId:string;
   accountId:number; legacyUserId?:number; attendanceId?:string; order:ServiceOrder; createdAt:number; updatedAt:number;
   attempts:number; file?:Blob; fileName?:string; photoId?:string; lastError?:string; uploadedKey?:string; uploadedUrl?:string;
 };
@@ -138,12 +138,17 @@ function normalizeQueueItem(raw:any):QueueItem{
       :localId.startsWith('order:')?'order_update'
       :localId.startsWith('photo:')?'attendance_photo'
       :localId.startsWith('signature:')?'signature_upload'
+      :localId.startsWith('update:order:')?'order_update'
+      :localId.startsWith('attendance-photo:')?'attendance_photo'
+      :localId.startsWith('upload:offline/')?'legacy_upload'
       :'invalid';
   let inferredOrderId=String(raw?.orderId??raw?.order?.id??'');
+  if(!inferredOrderId&&localId.startsWith('update:order:')){const parts=localId.split(':');if(parts[2])inferredOrderId=parts[2];}
   if(!inferredOrderId){
     const parts=localId.split(':');
     if((parts[0]==='create'||parts[0]==='order'||parts[0]==='signature')&&parts[1])inferredOrderId=parts[1];
     if(parts[0]==='photo'&&parts[1])inferredOrderId=parts[1];
+    if(parts[0]==='attendance-photo'&&parts[1]){/* photo id only; order may be recovered from the cached order */}
   }
   const created=Number(raw?.createdAt),updated=Number(raw?.updatedAt);
   const createdAt=Number.isFinite(created)&&created>0?created:Number.isFinite(updated)&&updated>0?updated:0;
