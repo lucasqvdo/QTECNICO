@@ -42,7 +42,9 @@ export async function syncOfflineQueue():Promise<void>{
       try{await syncSignature(item);await removeQueueItem(item.id);}
       catch(error){await updateQueueFailure(item.id,error instanceof Error?error.message:'Falha ao sincronizar assinatura');state='error';emit();return;}
     }
-    if(state!=='error'){await markServerSync();state='idle';}
+    const remaining=await getQueue();
+    if(state!=='error' && navigator.onLine && remaining.length===0){await markServerSync();state='idle';}
+    else if(state!=='error'){state='idle';}
     emit();
   }finally{running=false;}
 }
