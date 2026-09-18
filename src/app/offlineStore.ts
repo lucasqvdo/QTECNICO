@@ -71,18 +71,31 @@ export async function cacheUser(user: UserProfile | null): Promise<void> {
 
 export async function cacheSnapshot(orders: ServiceOrder[], user: UserProfile | null, clients?: Client[]): Promise<void> {
   const db = await openDb();
-  const stores = clients ? [ORDERS, CLIENTS, META] : [ORDERS, META];
+  const stores = clients ? [ORDERS, CLIENTS, META, QUEUE] : [ORDERS, META, QUEUE];
   const tx = db.transaction(stores, 'readwrite');
   const ordersStore = tx.objectStore(ORDERS);
-  ordersStore.clear();
-  for (const order of orders) ordersStore.put(order);
-  if (clients) {
-    const clientsStore = tx.objectStore(CLIENTS);
-    clientsStore.clear();
-    for (const client of clients) clientsStore.put(client);
-  }
-  if (user) tx.objectStore(META).put({ key: 'user', value: user });
-  tx.objectStore(META).put({ key: 'last_server_sync', value: Date.now() });
+  const pendingRequest = tx.objectStore(QUEUE).getAll();
+
+  pendingRequest.onsuccess = () => {
+    const pending = (pendingRequest.result || []) as QueueItem[];
+    ordersStore.clear();
+    for (const order of orders) ordersStore.put(order);
+
+    // Nunca apague do cache local uma OS que ainda possui operação pendente.
+    // Isso mantém o trabalho disponível após uma atualização online seguida
+    // de perda de conexão antes da sincronização terminar.
+    const pendingOrders = new Map<string, ServiceOrder>();
+    for (const item of pending) pendingOrders.set(item.orderId, item.order);
+    for (const order of pendingOrders.values()) ordersStore.put(order);
+
+    if (clients) {
+      const clientsStore = tx.objectStore(CLIENTS);
+      clientsStore.clear();
+      for (const client of clients) clientsStore.put(client);
+    }
+    if (user) tx.objectStore(META).put({ key: 'user', value: user });
+    tx.objectStore(META).put({ key: 'last_server_sync', value: Date.now() });
+  };
   await txDone(tx);
 }
 
