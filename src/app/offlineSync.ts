@@ -81,4 +81,13 @@ export async function getSyncInfo(){
     lastError:failed.sort((a,b)=>b.updatedAt-a.updatedAt)[0]?.lastError||''
   };
 }
-export function startOfflineSync(){if(listenersBound)return;listenersBound=true;window.addEventListener('online',()=>{void syncOfflineQueue();});window.setInterval(()=>{void syncOfflineQueue();},30000);if(navigator.onLine)void syncOfflineQueue();}
+export function startOfflineSync(){
+  if(listenersBound)return;
+  listenersBound=true;
+  const kick=()=>{if(navigator.onLine&&!running)void syncOfflineQueue();};
+  window.addEventListener('online',kick);
+  window.addEventListener('focus',kick);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')kick();});
+  window.setInterval(kick,5000);
+  kick();
+}
