@@ -10,7 +10,7 @@ const QUEUE = 'sync_queue';
 
 type ScopedRecord = { id:string; accountId:number; legacyUserId?:number; value:any };
 type QueueItem = {
-  id:string; type:'order_create'|'order_update'|'attendance_photo'|'signature_upload'; orderId:string;
+  id:string; type:'order_create'|'order_update'|'attendance_photo'|'signature_upload'|'invalid'; orderId:string;
   accountId:number; legacyUserId?:number; attendanceId?:string; order:ServiceOrder; createdAt:number; updatedAt:number;
   attempts:number; file?:Blob; fileName?:string; photoId?:string; lastError?:string; uploadedKey?:string; uploadedUrl?:string;
 };
