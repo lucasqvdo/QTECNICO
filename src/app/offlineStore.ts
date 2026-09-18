@@ -12,7 +12,7 @@ type ScopedRecord = { id:string; accountId:number; legacyUserId?:number; value:a
 type QueueItem = {
   id:string; type:'order_create'|'order_update'|'attendance_photo'|'signature_upload'|'legacy_upload'|'invalid'; orderId:string;
   accountId:number; legacyUserId?:number; attendanceId?:string; order:ServiceOrder; createdAt:number; updatedAt:number;
-  attempts:number; file?:Blob; fileName?:string; photoId?:string; lastError?:string; uploadedKey?:string; uploadedUrl?:string;
+  attempts:number; manualRecovery?:boolean; file?:Blob; fileName?:string; photoId?:string; lastError?:string; uploadedKey?:string; uploadedUrl?:string;
 };
 export type OfflineSnapshot={orders:ServiceOrder[];clients:Client[];user:UserProfile|null};
 
