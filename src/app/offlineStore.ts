@@ -126,7 +126,47 @@ export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();
 export async function queueOrderUpdate(order:ServiceOrder){const now=Date.now();await enqueue({id:`order:${order.id}`,type:'order_update',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueAttendancePhoto(order:ServiceOrder,attendanceId:string,photoId:string,file:Blob,fileName:string){const now=Date.now();await enqueue({id:`photo:${order.id}:${photoId}`,type:'attendance_photo',orderId:order.id,attendanceId,photoId,order,file,fileName,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueSignatureUpload(order:ServiceOrder,file:Blob,fileName:string){const now=Date.now();await enqueue({id:`signature:${order.id}`,type:'signature_upload',orderId:order.id,order,file,fileName,createdAt:now,updatedAt:now,attempts:0},order);}
-export async function getQueue():Promise<QueueItem[]>{const accountId=await activeAccountId(),db=await openDb();return new Promise((resolve,reject)=>{const tx=db.transaction(QUEUE,'readonly'),req=tx.objectStore(QUEUE).getAll();tx.oncomplete=()=>resolve((req.result||[]).filter((x:any)=>Number(x.accountId)===accountId) as QueueItem[]);tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler a fila offline.'));});}
+function normalizeQueueItem(raw:any):QueueItem{
+  const rawId=String(raw?.id??'');
+  const scopedPrefix=raw.accountId!=null?String(raw.accountId)+':':'';
+  const localId=scopedPrefix&&rawId.startsWith(scopedPrefix)?rawId.slice(scopedPrefix.length):rawId;
+  const rawType=raw?.type;
+  const inferredType:QueueItem['type']=
+    rawType==='order_create'||rawType==='order_update'||rawType==='attendance_photo'||rawType==='signature_upload'
+      ?rawType
+      :localId.startsWith('create:')?'order_create'
+      :localId.startsWith('order:')?'order_update'
+      :localId.startsWith('photo:')?'attendance_photo'
+      :localId.startsWith('signature:')?'signature_upload'
+      :'signature_upload';
+  let inferredOrderId=String(raw?.orderId??raw?.order?.id??'');
+  if(!inferredOrderId){
+    const parts=localId.split(':');
+    if((parts[0]==='create'||parts[0]==='order'||parts[0]==='signature')&&parts[1])inferredOrderId=parts[1];
+    if(parts[0]==='photo'&&parts[1])inferredOrderId=parts[1];
+  }
+  const created=Number(raw?.createdAt),updated=Number(raw?.updatedAt);
+  const createdAt=Number.isFinite(created)&&created>0?created:Number.isFinite(updated)&&updated>0?updated:0;
+  const updatedAt=Number.isFinite(updated)&&updated>0?updated:createdAt;
+  const attempts=Number(raw?.attempts);
+  return {...raw,id:rawId,type:inferredType,orderId:inferredOrderId,accountId:Number(raw?.accountId),createdAt,updatedAt,attempts:Number.isFinite(attempts)&&attempts>=0?attempts:0} as QueueItem;
+}
+export async function getQueue():Promise<QueueItem[]>{
+  const accountId=await activeAccountId(),db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.getAll();
+    req.onsuccess=()=>{
+      const rows=(req.result||[]).filter((x:any)=>Number(x.accountId)===accountId);
+      for(const raw of rows){
+        const normalized=normalizeQueueItem(raw);
+        const changed=raw.type!==normalized.type||raw.orderId!==normalized.orderId||raw.createdAt!==normalized.createdAt||raw.updatedAt!==normalized.updatedAt||raw.attempts!==normalized.attempts;
+        if(changed)s.put(normalized);
+      }
+      resolve(rows.map(normalizeQueueItem));
+    };
+    tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler a fila offline.'));
+  });
+}
 export async function updateQueueUpload(id:string,uploadedKey:string,uploadedUrl:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,uploadedKey,uploadedUrl,updatedAt:Date.now()});};await txDone(tx);}
 export async function updateQueueFailure(id:string,error:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,attempts:item.attempts+1,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
 export async function removeQueueItem(id:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.delete(id);};await txDone(tx);}
