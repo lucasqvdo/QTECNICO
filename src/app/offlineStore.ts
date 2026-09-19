@@ -104,10 +104,9 @@ export async function getOfflineSnapshot():Promise<OfflineSnapshot>{
       const accountId=rawAccountId!=null?Number(rawAccountId):null;
       const scoped=(rows:any[])=>{
         if(Number.isInteger(accountId)&&(accountId as number)>0){
-          const matched=rows.filter(x=>Number(x.accountId)===Number(accountId));
-          if(matched.length>0)return matched;
+          return rows.filter(x=>Number(x.accountId)===Number(accountId));
         }
-        return rows;
+        return [];
       };
       resolve({orders:scoped(o.result||[]).map(x=>x.value||x),clients:scoped(c.result||[]).map(x=>x.value||x),user:u.result?.value||null});
     };
