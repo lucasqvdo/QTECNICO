@@ -33,10 +33,11 @@ const isConfigured = Boolean(
 );
 
 export const mockPoolInstance = new MockPgPool();
+const useMockDb = process.env.USE_MOCK_DB === 'true';
 let realPoolInstance: any = null;
 let useRealDb = false;
 
-if (isConfigured) {
+if (!useMockDb && isConfigured) {
   try {
     realPoolInstance = new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -47,8 +48,16 @@ if (isConfigured) {
     });
     realPoolInstance.on('error', (err: any) => console.error('❌ Pool error:', err.message));
   } catch (err: any) {
-    console.warn('⚠️ Erro ao criar pool Postgres:', err.message);
+    console.error('❌ Erro ao criar pool Postgres:', err.message);
   }
+}
+
+function databaseUnavailableError(): Error {
+  return new Error(
+    useMockDb
+      ? 'Banco de dados mock não está disponível.'
+      : 'Banco PostgreSQL não está configurado ou disponível.'
+  );
 }
 
 export const pool = {
@@ -57,35 +66,21 @@ export const pool = {
     return this;
   },
   async connect() {
-    if (useRealDb && realPoolInstance) {
-      try {
-        return await realPoolInstance.connect();
-      } catch {
-        useRealDb = false;
-      }
-    }
-    return mockPoolInstance.connect();
+    if (useMockDb) return mockPoolInstance.connect();
+    if (!useRealDb || !realPoolInstance) throw databaseUnavailableError();
+    return realPoolInstance.connect();
   },
   async query(text: string, params?: any[]) {
-    if (useRealDb && realPoolInstance) {
-      try {
-        return await realPoolInstance.query(text, params);
-      } catch (err: any) {
-        console.warn('⚠️ Query no PostgreSQL falhou:', err?.message || err);
-        return mockPoolInstance.query(text, params);
-      }
-    }
-    return mockPoolInstance.query(text, params);
+    if (useMockDb) return mockPoolInstance.query(text, params);
+    if (!useRealDb || !realPoolInstance) throw databaseUnavailableError();
+    return realPoolInstance.query(text, params);
   },
   async end() {
     if (useRealDb && realPoolInstance && typeof realPoolInstance.end === 'function') {
-      try {
-        await realPoolInstance.end();
-      } catch {}
+      await realPoolInstance.end();
     }
   },
 };
-
 async function reconcileWebAuthnSchema() {
   const tableCheck = await pool.query(`SELECT to_regclass('public.webauthn_challenges') AS table_name`);
   if (tableCheck.rows[0]?.table_name) {
@@ -158,29 +153,17 @@ async function reconcileMultiTenantSchema() {
 }
 
 export async function initDbSchema() {
-  if (isConfigured && realPoolInstance) {
-    try {
-      await realPoolInstance.query('SELECT 1');
-      useRealDb = true;
-      console.log('✅ Conectado ao PostgreSQL com sucesso');
-    } catch (err: any) {
-      console.warn('⚠️ Não foi possível conectar ao PostgreSQL:', err.message);
-      console.warn('ℹ️ Usando banco de dados em memória do QTecnico');
-      useRealDb = false;
-    }
+  if (useMockDb) {
+    console.warn('⚠️ USE_MOCK_DB=true — usando banco de dados em memória. Não usar em produção.');
   } else {
-    console.log('ℹ️ DATABASE_URL não configurada ou placeholder — usando banco de dados em memória do QTecnico');
+    if (!isConfigured || !realPoolInstance) {
+      throw new Error('DATABASE_URL não configurada. O QTECNICO não pode iniciar em produção sem PostgreSQL.');
+    }
+    await realPoolInstance.query('SELECT 1');
+    useRealDb = true;
+    console.log('✅ Conectado ao PostgreSQL com sucesso');
   }
 
-  try {
-    await reconcileWebAuthnSchema();
-  } catch (e: any) {
-    console.warn('WebAuthn schema notice:', e.message);
-  }
-
-  try {
-    await reconcileMultiTenantSchema();
-  } catch (e: any) {
-    console.warn('MultiTenant schema notice:', e.message);
-  }
+  await reconcileWebAuthnSchema();
+  await reconcileMultiTenantSchema();
 }
