@@ -22,6 +22,7 @@ export interface AssignedTechnician {
 }
 
 export interface ServiceOrder {
+  syncVersion?: number;
   id: string;
   clientId: string;
   client: string;
