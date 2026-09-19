@@ -22,6 +22,7 @@ export type QueueItem = {
   createdAt:number;
   updatedAt:number;
   attempts:number;
+  baseVersion?:number;
   manualRecovery?:boolean;
   file?:Blob;
   fileName?:string;
@@ -213,7 +214,7 @@ export async function getCachedTeam():Promise<TeamMember[]>{try{const accountId=
 export async function updateCachedPhoto(orderId:string,attendanceId:string,photoId:string,uploadedKey:string,uploadedUrl:string){try{const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite'),s=tx.objectStore(ORDERS),req=s.get(`${accountId}:${orderId}`);req.onsuccess=()=>{const row=req.result;if(row&&row.value){const o=row.value as ServiceOrder;const nextAtts=(o.attendances||[]).map(a=>{if(a.id!==attendanceId)return a;return{...a,photos:(a.photos||[]).map(p=>p.id===photoId?{...p,key:uploadedKey,dataUrl:uploadedUrl}:p)};});s.put({...row,value:{...o,attendances:nextAtts}});}};await txDone(tx);}catch(e){console.warn('Não foi possível atualizar foto no cache offline:',e);}}
 async function enqueue(item:Omit<QueueItem,'accountId'>,order:ServiceOrder){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');const scopedId=`${accountId}:${item.id}`;tx.objectStore(QUEUE).put({...item,id:scopedId,accountId});tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
 export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();await enqueue({id:`create:${order.id}`,type:'order_create',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
-export async function queueOrderUpdate(order:ServiceOrder){const now=Date.now();await enqueue({id:`order:${order.id}`,type:'order_update',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
+export async function queueOrderUpdate(order:ServiceOrder){const accountId=await activeAccountId(),now=Date.now(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:order:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'order_update',orderId:order.id,order,accountId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});};await txDone(tx);}
 export async function queueOrderDelete(orderId:string,fallbackOrder?:ServiceOrder){
   const accountId=await activeAccountId(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');
   const queueStore=tx.objectStore(QUEUE),ordersStore=tx.objectStore(ORDERS);
