@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CalendarDays, CheckCircle2, Clock3, MapPin, Navigation, Phone, UserRound, Wrench } from 'lucide-react';
 import AdminShellV2, { type TechnicianSectionV2 } from './AdminShellV2';
 import TechnicianOrderDetail from './TechnicianOrderDetail';
@@ -70,7 +70,7 @@ export default function TechnicianDashboardV2() {
   const agenda = useMemo(() => [...orders].filter(o => o.status !== 'cancelled').sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))), [orders]);
   const save = (order: ServiceOrder) => { setOrders(previous => previous.map(item => item.id === order.id ? order : item)); setSelected(order); };
 
-  let content: JSX.Element;
+  let content: ReactNode;
   if (loading) content = <div className="p-6 lg:p-8"><div className="rounded-2xl border bg-white p-12 text-center text-slate-500">Carregando sua operação...</div></div>;
   else if (error) content = <div className="p-6 lg:p-8"><div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">{error}</div></div>;
   else if (section === 'home') content = <div className="p-4 sm:p-6 lg:p-8"><div className="mb-7"><p className="text-sm font-medium text-cyan-600">Minha operação</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Olá, {user?.name?.split(' ')[0] || 'Técnico'}!</h1><p className="mt-1 text-sm text-slate-500">Acompanhe suas ordens, atendimentos e programação.</p></div><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Stat icon={Wrench} label="Minhas OS" value={orders.length} detail="Ordens atribuídas" /><Stat icon={Clock3} label="Em andamento" value={active.length} detail="Pendentes ou em execução" /><Stat icon={CheckCircle2} label="Concluídas" value={completed.length} detail="Histórico de execução" /><Stat icon={CalendarDays} label="Hoje" value={today.length} detail="Programadas / em execução" /></section><section className="mt-5 rounded-2xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Próximas ordens</h2><p className="text-xs text-slate-500">Chamados sob sua responsabilidade</p></div><div className="divide-y">{active.slice(0, 6).map(order => <Row key={order.id} order={order} onOpen={setSelected} />)}{!active.length && <p className="p-6 text-sm text-slate-500">Nenhuma ordem pendente no momento.</p>}</div></section></div>;

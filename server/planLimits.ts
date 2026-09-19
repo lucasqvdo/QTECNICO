@@ -73,7 +73,7 @@ export function requireFeature(feature: keyof PlanFeatures) {
   };
 }
 
-export function assertPhotoLimit(plan: Plan, attendances: { photos?: unknown[] }[]) {
+export function assertPhotoLimit(plan: Plan, attendances: { photos?: unknown[]; [key: string]: any }[]) {
   const limit = plan.limits.maxPhotosPerAttendance;
   if (limit === null) return;
   for (const a of attendances) {

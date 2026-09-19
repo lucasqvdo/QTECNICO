@@ -1,3 +1,0 @@
-- [QTecnico backend architecture](qtecnico-backend.md) — Express+PostgreSQL backend added; key decisions on auth, seeding, and full-replace update strategy.
-- [PostgreSQL challenge writes](postgresql-challenge-writes.md) — parameterized pg queries cannot contain multiple SQL commands; split challenge cleanup and insert.
-- [GitHub publishing](github-publish.md) — the connected GitHub API can publish commits when the local HTTPS remote lacks shell credentials.

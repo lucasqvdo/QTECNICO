@@ -276,7 +276,7 @@ export default function App() {
 
   const handleUpdateOrder = async (updated: ServiceOrder) => {
     try {
-      const saved = await api.updateOrder(updated);
+      const saved = await api.updateOrder(updated.id, updated, updated);
       setOrders(prev => prev.map(o => o.id === saved.id ? saved : o));
       setSelectedOrder(saved);
     } catch (e) { console.error("Erro ao atualizar OS:", e); }
@@ -293,7 +293,7 @@ export default function App() {
   const handleSaveClient = async (c: Client) => {
     try {
       if (clients.find(x => x.id === c.id)) {
-        const updated = await api.updateClient(c);
+        const updated = await api.updateClient(c.id, c);
         setClients(prev => prev.map(x => x.id === updated.id ? updated : x));
       } else {
         const created = await api.createClient(c);
@@ -305,7 +305,7 @@ export default function App() {
   const handleDeleteClient = async (id: string) => {
     try {
       await api.deleteClient(id);
-      setClients(prev => prev.filter(c => c.id !== id));
+      setClients(prev => prev.filter(c => String(c.id) !== String(id)));
     } catch (e) { console.error("Erro ao deletar cliente:", e); }
   };
 
@@ -921,7 +921,7 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = ev => {
-        setPendingPhotos(prev => [...prev, { id: Date.now() + file.name, dataUrl: ev.target!.result as string, name: file.name }]);
+        setPendingPhotos(prev => [...prev, { id: Date.now() + file.name, key: '', dataUrl: ev.target!.result as string, name: file.name }]);
       };
       reader.readAsDataURL(file);
     });
@@ -1698,7 +1698,7 @@ function AddOrderModal({ clients, orders, onAdd, onClose }: {
       type, status: "pending", date: new Date().toISOString().split("T")[0],
       priority, description,
       clientValue: parseFloat(clientValue.replace(",", ".")) || 0,
-      expenses: [], attendances: [],
+      expenses: [], attendances: [], payments: [],
       paymentStatus: "pending",
     });
   };

@@ -1,1 +1,0 @@
-Mobile cache recovery is handled by the root document bootstrap.

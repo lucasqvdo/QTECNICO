@@ -55,7 +55,8 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
 }
 
 function normalizedEmailKey(req: Parameters<RequestHandler>[0]) {
-  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const body = (req as any)?.body;
+  const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
   if (!email) return 'email:missing';
   return `email:${createHash('sha256').update(email).digest('hex')}`;
 }

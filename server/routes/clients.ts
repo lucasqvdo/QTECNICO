@@ -36,6 +36,14 @@ router.post('/', requireAdmin, async (req, res) => {
   const id = c.id || Date.now().toString();
   try {
     const accountId = await getAccountId(userId);
+    const existing = await pool.query('SELECT id, name, document, address, phone, email FROM clients WHERE id=$1 AND account_id=$2', [id, accountId]);
+    if (existing.rows[0]) {
+      await pool.query(
+        'UPDATE clients SET name=$1, document=$2, address=$3, phone=$4, email=$5 WHERE id=$6 AND account_id=$7',
+        [c.name, c.document || '', c.address || '', c.phone || '', c.email || '', id, accountId]
+      );
+      return res.status(200).json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '' });
+    }
     await pool.query(
       'INSERT INTO clients (id, account_id, user_id, name, document, address, phone, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [id, accountId, userId, c.name, c.document || '', c.address || '', c.phone || '', c.email || '']
@@ -58,7 +66,13 @@ router.put('/:id', requireAdmin, async (req, res) => {
        WHERE id=$6 AND account_id=$7`,
       [c.name, c.document || '', c.address || '', c.phone || '', c.email || '', id, accountId]
     );
-    if (result.rowCount === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
+    if (result.rowCount === 0) {
+      // Upsert: if client wasn't in DB yet, insert it with the specified ID
+      await pool.query(
+        'INSERT INTO clients (id, account_id, user_id, name, document, address, phone, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [id, accountId, userId, c.name, c.document || '', c.address || '', c.phone || '', c.email || '']
+      );
+    }
     res.json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '' });
   } catch (e) {
     console.error(e);
@@ -73,7 +87,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       'DELETE FROM clients WHERE id = $1 AND account_id=$2',
       [req.params.id, accountId]
     );
-    if (result.rowCount === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
+    if (result.rowCount === 0) return res.json({ success: true, alreadyDeleted: true });
     res.json({ success: true });
   } catch (e) {
     console.error(e);

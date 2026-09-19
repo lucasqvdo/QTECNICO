@@ -26,8 +26,8 @@ function hashSessionToken(token: string) {
 function cookieOptions(httpOnly: boolean) {
   return {
     httpOnly,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
+    secure: true,
+    sameSite: 'none' as const,
     path: '/',
     maxAge: SESSION_TTL_MS,
   };

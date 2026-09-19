@@ -42,7 +42,7 @@ export interface WebAuthnActions {
   /**
    * Autentica via biometria. Retorna token + perfil do usuário ou lança erro.
    */
-  authenticate: (email: string) => Promise<{ token: string; user: UserProfile }>;
+  authenticate: (email: string) => Promise<{ token?: string; user: UserProfile }>;
 
   /** Remove todas as credenciais biométricas do usuário neste dispositivo. */
   removeEnrollment: () => Promise<void>;
@@ -103,7 +103,7 @@ export function useWebAuthn(): WebAuthnState & WebAuthnActions {
   // ── Autenticação ────────────────────────────────────────────────────────────
   const authenticate = useCallback(async (
     email: string,
-  ): Promise<{ token: string; user: UserProfile }> => {
+  ): Promise<{ user: UserProfile; token?: string }> => {
     setLoading(true);
     setError(null);
     try {

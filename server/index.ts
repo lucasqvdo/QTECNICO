@@ -3,32 +3,43 @@ import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { pool } from './db.js';
+import { pool, initDbSchema } from './db.js';
 import authRouter from './routes/auth.js';
 import ordersRouter from './routes/orders.js';
+import orderSyncRouter from './routes/orderSync.js';
 import clientsRouter from './routes/clients.js';
 import usersRouter from './routes/users.js';
 import uploadsRouter from './routes/uploads.js';
 import webauthnRouter from './routes/webauthn.js';
 import dashboardRouter from './routes/dashboard.js';
+import backofficeRouter from './routes/backoffice.js';
+import billingRouter from './routes/billing.js';
 
 import { existsSync } from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '5000', 10);
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+app.get('/api/health', async (_req, res) => {
+  try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'qtecnico', timestamp: new Date().toISOString() }); }
+  catch { res.status(503).json({ ok: false, error: 'Banco de dados indisponível' }); }
+});
+
 app.use('/api/auth', authRouter);
+app.use('/api/orders', orderSyncRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/auth/webauthn', webauthnRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/dashboard/backoffice', backofficeRouter);
+app.use('/api/dashboard', billingRouter);
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.path.startsWith('/api')) {
     if (error?.type === 'entity.parse.failed') {
@@ -41,6 +52,8 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
 
 async function initDb() {
   try {
+    await initDbSchema();
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -231,7 +244,17 @@ initDb().then(() => {
   // Serve frontend build if dist/ exists (production)
   const distPath = path.join(__dirname, '..', 'dist');
   if (existsSync(path.join(distPath, 'index.html'))) {
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('sw.js')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        } else if (filePath.endsWith('.webmanifest') || filePath.endsWith('manifest.json')) {
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+        } else if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }));
     app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

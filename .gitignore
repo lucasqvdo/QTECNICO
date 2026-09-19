@@ -16,6 +16,7 @@ yarn-error.log*
 # Local tooling and OS files
 .DS_Store
 Thumbs.db
+.agents/
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json

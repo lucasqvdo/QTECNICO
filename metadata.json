@@ -1,0 +1,6 @@
+{
+  "name": "QTecnico",
+  "description": "Gestão de Ordens de Serviço para técnicos.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

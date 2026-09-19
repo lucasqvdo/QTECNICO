@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { BarChart3, Building2, CalendarDays, ClipboardList, Clock3, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
+import { BarChart3, Building2, CalendarDays, ClipboardList, Clock3, CreditCard, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
 import { api } from './api';
 import ConnectivityStatus from './components/ConnectivityStatus';
 
-export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company';
+export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company' | 'billing';
 export type TechnicianSectionV2 = 'home' | 'orders' | 'attendances' | 'agenda' | 'profile';
 export type ShellMode = 'admin' | 'technician';
 
@@ -18,6 +18,7 @@ const ADMIN_NAV: NavItem[] = [
   ['agenda', CalendarDays, 'Agenda', 'Programação'],
   ['finance', DollarSign, 'Financeiro', 'Receitas e custos'],
   ['company', Building2, 'Perfil da Empresa', 'Dados da empresa'],
+  ['billing', CreditCard, 'Plano e Assinatura', 'Gestão do SaaS e faturas'],
 ];
 
 const TECH_NAV: NavItem[] = [

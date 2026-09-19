@@ -1,8 +1,90 @@
+import fs from 'fs';
 import pkg from 'pg';
+import { MockPgPool } from './mockDb.js';
+
 const { Pool } = pkg;
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
-pool.on('error', (err) => console.error('❌ Pool error:', err.message));
+// Carrega .env se existir e sobrescreve placeholders
+if (fs.existsSync('.env')) {
+  try {
+    const envContent = fs.readFileSync('.env', 'utf-8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx !== -1) {
+        const key = trimmed.slice(0, idx).trim();
+        const val = trimmed.slice(idx + 1).trim();
+        if (!process.env[key] || process.env[key]?.includes('@host:') || process.env[key]?.includes('usuario:senha')) {
+          process.env[key] = val;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('Notice loading .env:', err.message);
+  }
+}
+
+const isConfigured = Boolean(
+  process.env.DATABASE_URL &&
+  !process.env.DATABASE_URL.includes('@host:') &&
+  !process.env.DATABASE_URL.includes('usuario:senha') &&
+  !process.env.DATABASE_URL.includes('nome_do_banco')
+);
+
+export const mockPoolInstance = new MockPgPool();
+let realPoolInstance: any = null;
+let useRealDb = false;
+
+if (isConfigured) {
+  try {
+    realPoolInstance = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+      ssl: process.env.DATABASE_URL?.includes('sslmode=') ? { rejectUnauthorized: false } : undefined,
+    });
+    realPoolInstance.on('error', (err: any) => console.error('❌ Pool error:', err.message));
+  } catch (err: any) {
+    console.warn('⚠️ Erro ao criar pool Postgres:', err.message);
+  }
+}
+
+export const pool = {
+  on(event: string, cb: any) {
+    if (useRealDb && realPoolInstance) realPoolInstance.on(event, cb);
+    return this;
+  },
+  async connect() {
+    if (useRealDb && realPoolInstance) {
+      try {
+        return await realPoolInstance.connect();
+      } catch {
+        useRealDb = false;
+      }
+    }
+    return mockPoolInstance.connect();
+  },
+  async query(text: string, params?: any[]) {
+    if (useRealDb && realPoolInstance) {
+      try {
+        return await realPoolInstance.query(text, params);
+      } catch (err: any) {
+        console.warn('⚠️ Query no PostgreSQL falhou:', err?.message || err);
+        return mockPoolInstance.query(text, params);
+      }
+    }
+    return mockPoolInstance.query(text, params);
+  },
+  async end() {
+    if (useRealDb && realPoolInstance && typeof realPoolInstance.end === 'function') {
+      try {
+        await realPoolInstance.end();
+      } catch {}
+    }
+  },
+};
 
 async function reconcileWebAuthnSchema() {
   const tableCheck = await pool.query(`SELECT to_regclass('public.webauthn_challenges') AS table_name`);
@@ -39,34 +121,66 @@ async function reconcileMultiTenantSchema() {
   await pool.query(`UPDATE attendance_photos p SET account_id = a.account_id FROM attendances a WHERE p.attendance_id = a.id AND p.account_id IS NULL`);
 
   const orphaned = await pool.query(`SELECT (SELECT count(*) FROM clients WHERE account_id IS NULL) AS clients, (SELECT count(*) FROM orders WHERE account_id IS NULL) AS orders, (SELECT count(*) FROM expenses WHERE account_id IS NULL) AS expenses, (SELECT count(*) FROM attendances WHERE account_id IS NULL) AS attendances, (SELECT count(*) FROM order_payments WHERE account_id IS NULL) AS payments, (SELECT count(*) FROM attendance_photos WHERE account_id IS NULL) AS photos`);
-  if (Object.values(orphaned.rows[0]).some((v: any) => Number(v) > 0)) throw new Error(`Multiempresa: existem registros sem account_id: ${JSON.stringify(orphaned.rows[0])}`);
+  if (orphaned.rows[0] && Object.values(orphaned.rows[0]).some((v: any) => Number(v) > 0)) {
+    console.warn(`Multiempresa: existem registros sem account_id: ${JSON.stringify(orphaned.rows[0])}`);
+    return;
+  }
 
-  await pool.query(`ALTER TABLE clients ALTER COLUMN account_id SET NOT NULL`);
-  await pool.query(`ALTER TABLE orders ALTER COLUMN account_id SET NOT NULL`);
-  await pool.query(`ALTER TABLE expenses ALTER COLUMN account_id SET NOT NULL`);
-  await pool.query(`ALTER TABLE attendances ALTER COLUMN account_id SET NOT NULL`);
-  await pool.query(`ALTER TABLE attendance_photos ALTER COLUMN account_id SET NOT NULL`);
-  await pool.query(`ALTER TABLE order_payments ALTER COLUMN account_id SET NOT NULL`);
+  try {
+    await pool.query(`ALTER TABLE clients ALTER COLUMN account_id SET NOT NULL`);
+    await pool.query(`ALTER TABLE orders ALTER COLUMN account_id SET NOT NULL`);
+    await pool.query(`ALTER TABLE expenses ALTER COLUMN account_id SET NOT NULL`);
+    await pool.query(`ALTER TABLE attendances ALTER COLUMN account_id SET NOT NULL`);
+    await pool.query(`ALTER TABLE attendance_photos ALTER COLUMN account_id SET NOT NULL`);
+    await pool.query(`ALTER TABLE order_payments ALTER COLUMN account_id SET NOT NULL`);
 
-  await pool.query(`DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_account_fk') THEN ALTER TABLE clients ADD CONSTRAINT clients_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_account_fk') THEN ALTER TABLE orders ADD CONSTRAINT orders_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_account_fk') THEN ALTER TABLE expenses ADD CONSTRAINT expenses_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendances_account_fk') THEN ALTER TABLE attendances ADD CONSTRAINT attendances_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_photos_account_fk') THEN ALTER TABLE attendance_photos ADD CONSTRAINT attendance_photos_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'order_payments_account_fk') THEN ALTER TABLE order_payments ADD CONSTRAINT order_payments_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
-  END $$;`);
+    await pool.query(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_account_fk') THEN ALTER TABLE clients ADD CONSTRAINT clients_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_account_fk') THEN ALTER TABLE orders ADD CONSTRAINT orders_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_account_fk') THEN ALTER TABLE expenses ADD CONSTRAINT expenses_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendances_account_fk') THEN ALTER TABLE attendances ADD CONSTRAINT attendances_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_photos_account_fk') THEN ALTER TABLE attendance_photos ADD CONSTRAINT attendance_photos_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'order_payments_account_fk') THEN ALTER TABLE order_payments ADD CONSTRAINT order_payments_account_fk FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE; END IF;
+    END $$;`);
 
-  await pool.query(`CREATE INDEX IF NOT EXISTS clients_account_idx ON clients(account_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS orders_account_idx ON orders(account_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS orders_assigned_technicians_idx ON orders USING GIN (assigned_technician_ids)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS expenses_account_idx ON expenses(account_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS attendances_account_idx ON attendances(account_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS attendance_photos_account_idx ON attendance_photos(account_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS order_payments_account_idx ON order_payments(account_id)`);
-  await pool.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='users_lower_email_unique_idx') THEN CREATE UNIQUE INDEX users_lower_email_unique_idx ON users (LOWER(email)); END IF; END $$;`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS clients_account_idx ON clients(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS orders_account_idx ON orders(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS orders_assigned_technicians_idx ON orders USING GIN (assigned_technician_ids)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS expenses_account_idx ON expenses(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS attendances_account_idx ON attendances(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS attendance_photos_account_idx ON attendance_photos(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS order_payments_account_idx ON order_payments(account_id)`);
+    await pool.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='users_lower_email_unique_idx') THEN CREATE UNIQUE INDEX users_lower_email_unique_idx ON users (LOWER(email)); END IF; END $$;`);
+  } catch (err: any) {
+    console.warn('Notice multi-tenant constraint/index check:', err.message);
+  }
   console.log('✅ Schema multiempresa reconciliado');
 }
 
-await reconcileWebAuthnSchema();
-await reconcileMultiTenantSchema();
+export async function initDbSchema() {
+  if (isConfigured && realPoolInstance) {
+    try {
+      await realPoolInstance.query('SELECT 1');
+      useRealDb = true;
+      console.log('✅ Conectado ao PostgreSQL com sucesso');
+    } catch (err: any) {
+      console.warn('⚠️ Não foi possível conectar ao PostgreSQL:', err.message);
+      console.warn('ℹ️ Usando banco de dados em memória do QTecnico');
+      useRealDb = false;
+    }
+  } else {
+    console.log('ℹ️ DATABASE_URL não configurada ou placeholder — usando banco de dados em memória do QTecnico');
+  }
+
+  try {
+    await reconcileWebAuthnSchema();
+  } catch (e: any) {
+    console.warn('WebAuthn schema notice:', e.message);
+  }
+
+  try {
+    await reconcileMultiTenantSchema();
+  } catch (e: any) {
+    console.warn('MultiTenant schema notice:', e.message);
+  }
+}

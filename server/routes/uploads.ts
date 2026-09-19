@@ -17,14 +17,15 @@ const upload = multer({
 const ALLOWED_FOLDERS = new Set(['attendances', 'signatures', 'profiles']);
 
 router.post('/', requireAuth, upload.single('file'), async (req, res) => {
-  if (!isStorageConfigured()) {
-    return res.status(503).json({ error: 'Storage de imagens não configurado no servidor (variáveis STORAGE_* ausentes).' });
-  }
-
   const file = req.file;
   if (!file) return res.status(400).json({ error: 'Nenhum arquivo enviado (campo "file").' });
   if (!isAllowedImage(file.mimetype, file.size)) {
     return res.status(400).json({ error: 'Arquivo inválido: envie uma imagem (jpg/png/webp/heic) de até 10MB.' });
+  }
+
+  if (!isStorageConfigured()) {
+    const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    return res.json({ key: dataUrl, url: dataUrl });
   }
 
   const folderParam = String(req.body?.folder || 'attendances');

@@ -1,9 +1,16 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./api";
+import { getOfflineSnapshot } from "./offlineStore";
 
 const App = lazy(() => import("./App"));
 const AdminDashboard = lazy(() => import("./AdminDashboardV2"));
 const TechnicianDashboard = lazy(() => import("./TechnicianDashboardV2"));
+const BackofficeLogin = lazy(() => import("./BackofficeLogin"));
+const BackofficeDashboard = lazy(() => import("./BackofficeDashboard"));
+const BackofficeAccount = lazy(() => import("./BackofficeAccount"));
+const BackofficeBilling = lazy(() => import("./BackofficeBilling"));
+const PricingPage = lazy(() => import("./PricingPage"));
+const SubscriptionBilling = lazy(() => import("./SubscriptionBilling"));
 
 type Workspace = 'admin' | 'technician' | 'app';
 
@@ -21,6 +28,13 @@ function WorkspaceLoading() {
 
 export default function DeviceRouter() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -34,7 +48,28 @@ export default function DeviceRouter() {
       setWorkspace(target);
     };
 
+    const finishFromCachedUser = async () => {
+      try {
+        const cached = await getOfflineSnapshot();
+        if (!mounted) return;
+        if (cached.user && Number.isInteger(cached.user.accountId)) {
+          finish(cached.user.isAdmin ? 'admin' : 'technician');
+          return;
+        }
+      } catch (error) {
+        console.warn("QTecnico: não foi possível ler o cache offline no início", error);
+      }
+      finish('app');
+    };
+
     const checkAuth = async () => {
+      // No cold start offline, não espere uma requisição de rede falhar.
+      // O usuário e as OSs já preparadas para trabalho de campo ficam no IndexedDB.
+      if (!navigator.onLine) {
+        await finishFromCachedUser();
+        return;
+      }
+
       try {
         const user = await api.getMe();
         if (!mounted) return;
@@ -67,21 +102,79 @@ export default function DeviceRouter() {
 
     const handleSessionExpired = () => {
       if (!mounted) return;
+      // Uma resposta 401 só é relevante enquanto há conexão. Offline,
+      // o cache local deve continuar permitindo o trabalho do técnico.
+      if (!navigator.onLine) return;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       settled = true;
       setWorkspace('app');
     };
 
+    const handleOnline = () => {
+      if (!mounted || workspace) return;
+      void checkAuth();
+    };
+
     window.addEventListener("qtecnico-authenticated", handleAuthenticated);
     window.addEventListener("qtecnico-session-expired", handleSessionExpired);
+    window.addEventListener("online", handleOnline);
 
     return () => {
       mounted = false;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       window.removeEventListener("qtecnico-authenticated", handleAuthenticated);
       window.removeEventListener("qtecnico-session-expired", handleSessionExpired);
+      window.removeEventListener("online", handleOnline);
     };
   }, []);
+
+  if (pathname === '/pricing' || pathname === '/pricing/') {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <PricingPage />
+      </Suspense>
+    );
+  }
+
+  if (pathname === '/backoffice/login') {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <BackofficeLogin />
+      </Suspense>
+    );
+  }
+
+  if (pathname === '/backoffice/billing') {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <BackofficeBilling />
+      </Suspense>
+    );
+  }
+
+  if (pathname === '/backoffice/account') {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <BackofficeAccount />
+      </Suspense>
+    );
+  }
+
+  if (pathname === '/backoffice' || pathname === '/backoffice/') {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <BackofficeDashboard />
+      </Suspense>
+    );
+  }
+
+  if (pathname === '/billing' || pathname === '/billing/') {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <SubscriptionBilling onBack={() => { window.location.href = '/'; }} />
+      </Suspense>
+    );
+  }
 
   if (!workspace) return <WorkspaceLoading />;
 

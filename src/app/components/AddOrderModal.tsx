@@ -31,7 +31,7 @@ export function AddOrderModal({ clients, orders, onAdd, onClose }: {
       type, status: "pending", date: new Date().toISOString().split("T")[0],
       priority, description,
       clientValue: parseFloat(clientValue.replace(",", ".")) || 0,
-      expenses: [], attendances: [],
+      expenses: [], attendances: [], payments: [],
       paymentStatus: "pending",
     });
   };

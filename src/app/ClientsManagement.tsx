@@ -49,7 +49,7 @@ export default function ClientsManagement({ clients, orders, onClientsChange, on
   const remove = async (client: Client) => {
     if (!window.confirm(`Excluir o cliente ${client.name}?`)) return;
     setError('');
-    try { await api.deleteClient(client.id); onClientsChange(clients.filter((c) => c.id !== client.id)); if (selectedId === client.id) setSelectedId(null); }
+    try { await api.deleteClient(client.id); onClientsChange(clients.filter((c) => String(c.id) !== String(client.id))); if (String(selectedId) === String(client.id)) setSelectedId(null); }
     catch (e) { setError(e instanceof Error ? e.message : 'Não foi possível excluir o cliente.'); }
   };
 
