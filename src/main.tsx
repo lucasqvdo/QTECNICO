@@ -1,20 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { registerSW } from "virtual:pwa-register";
 import DeviceRouter from "./app/DeviceRouter";
 import { InstallPrompt } from "./app/components/InstallPrompt";
 import "./styles/index.css";
-
-// Registra o Service Worker imediatamente com auto-atualização para suporte offline completo
-registerSW({
-  immediate: true,
-  onRegisteredSW(swScriptUrl, registration) {
-    console.log("QTecnico: Service Worker registrado em", swScriptUrl, registration);
-  },
-  onRegisterError(error) {
-    console.warn("QTecnico: falha ao registrar Service Worker", error);
-  },
-});
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { error: Error | null }> {
   state: { error: Error | null } = { error: null };
@@ -55,4 +43,3 @@ createRoot(document.getElementById("root")!).render(
     <InstallPrompt />
   </AppErrorBoundary>
 );
-
