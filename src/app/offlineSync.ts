@@ -127,7 +127,8 @@ async function syncSignature(item: QueueItem) {
   const saved = await api.updateOrderOnline(item.orderId, {
     clientSignature: uploaded.url,
     clientSignatureKey: uploaded.key,
-    status: 'completed'
+    status: 'completed',
+    baseVersion: item.baseVersion
   });
   await cacheOrders([saved]);
 }
