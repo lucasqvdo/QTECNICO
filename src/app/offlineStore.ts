@@ -93,7 +93,15 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
       // Only migrate legacy rows whose previous user identity is known and matches.
       // Unattributed legacy rows stay quarantined instead of being assigned to a new account.
       if(item.accountId==null&&item.legacyUserId!=null&&Number(item.legacyUserId)===userId){
-        store.put({...item,accountId,legacyUserId:undefined});
+        const migrated={...item,accountId,legacyUserId:undefined,id:item.id};
+        store.put(migrated);
+        // Keep the legacy key only when it is already the scoped key; otherwise
+        // remove the old unscoped record after copying it into the account scope.
+        const scopedId=String(accountId)+':'+String(item.id);
+        if(String(item.id)!==scopedId){
+          store.delete(item.id);
+          store.put({...migrated,id:scopedId});
+        }
       }
     }};
   }
