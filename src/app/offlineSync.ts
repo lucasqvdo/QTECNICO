@@ -82,7 +82,7 @@ async function syncOrder(item: QueueItem) {
   const snapshot = await getOfflineSnapshot();
   const currentOrder = (item.orderId ? snapshot.orders.find(o => o.id === item.orderId) : null) || item.order;
   if (!currentOrder) return;
-  const saved = await api.updateOrderOnline(item.orderId, currentOrder);
+  const saved = await api.updateOrderOnline(item.orderId, { ...currentOrder, baseVersion: item.baseVersion });
   await cacheOrders([saved]);
 }
 
@@ -368,8 +368,12 @@ export async function syncOfflineQueue(): Promise<void> {
         }
         hadError = true;
         const msg = error instanceof Error ? error.message : 'Falha ao sincronizar OS';
-        await updateQueueFailure(item.id, msg);
-        if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
+        if (Number((error as any)?.status) === 409) {
+          await markQueueManualRecovery(item.id, `Conflito de sincronização: a OS foi alterada no servidor antes desta edição offline. ${msg}`);
+        } else {
+          await updateQueueFailure(item.id, msg);
+          if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
+        }
       }
     }
     for (const item of orderItems) {
