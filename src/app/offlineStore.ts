@@ -65,32 +65,37 @@ function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{
 function txDone(tx:IDBTransaction):Promise<void>{return new Promise((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error||new Error('Falha no armazenamento local.'));tx.onabort=()=>reject(tx.error||new Error('Operação local cancelada.'));});}
 
 async function activeAccountId():Promise<number>{
-  try {
-    const db=await openDb();
-    return new Promise((resolve)=>{
-      const tx=db.transaction(META,'readonly');
-      const req=tx.objectStore(META).get('user');
-      tx.oncomplete=()=>{
-        const raw=req.result?.value?.accountId;
-        const id=raw!=null?Number(raw):NaN;
-        if(Number.isInteger(id)&&id>0)resolve(id);
-        else resolve(1);
-      };
-      tx.onerror=()=>resolve(1);
-    });
-  } catch {
-    return 1;
-  }
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(META,'readonly');
+    const req=tx.objectStore(META).get('user');
+    tx.oncomplete=()=>{
+      const raw=req.result?.value?.accountId;
+      const id=raw!=null?Number(raw):NaN;
+      if(Number.isInteger(id)&&id>0)resolve(id);
+      else reject(new Error('Conta offline não identificada. Faça login novamente para inicializar o armazenamento local.'));
+    };
+    tx.onerror=()=>reject(tx.error||new Error('Não foi possível identificar a conta offline.'));
+  });
 }
 
 async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<void>{
   const rawAcc=user?.accountId;
-  const accountId=rawAcc!=null?Number(rawAcc):1;
+  const accountId=rawAcc!=null?Number(rawAcc):NaN;
   const userId=Number(user?.id);
+  if(!Number.isInteger(accountId)||accountId<=0||!Number.isInteger(userId)||userId<=0){
+    throw new Error('Conta offline inválida.');
+  }
   const tx=db.transaction([ORDERS,CLIENTS,QUEUE,META],'readwrite');
   for(const name of [ORDERS,CLIENTS,QUEUE]){
     const store=tx.objectStore(name), req=store.getAll();
-    req.onsuccess=()=>{for(const item of req.result||[])if(item.accountId==null&&(item.legacyUserId==null||Number(item.legacyUserId)===userId))store.put({...item,accountId,legacyUserId:undefined});};
+    req.onsuccess=()=>{for(const item of req.result||[]){
+      // Only migrate legacy rows whose previous user identity is known and matches.
+      // Unattributed legacy rows stay quarantined instead of being assigned to a new account.
+      if(item.accountId==null&&item.legacyUserId!=null&&Number(item.legacyUserId)===userId){
+        store.put({...item,accountId,legacyUserId:undefined});
+      }
+    }};
   }
   tx.objectStore(META).put({key:'user',value:user});
   await txDone(tx);
