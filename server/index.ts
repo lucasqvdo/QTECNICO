@@ -14,6 +14,7 @@ import webauthnRouter from './routes/webauthn.js';
 import dashboardRouter from './routes/dashboard.js';
 import backofficeRouter from './routes/backoffice.js';
 import billingRouter from './routes/billing.js';
+import { applyHttpSecurity } from './httpSecurity.js';
 
 import { existsSync } from 'fs';
 
@@ -22,6 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+applyHttpSecurity(app);
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
