@@ -200,6 +200,30 @@ async function initDb() {
 
     // Migrations para colunas novas
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_signature TEXT`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS sync_version INTEGER NOT NULL DEFAULT 1`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS orders_sync_version_idx ON orders(id, sync_version)`);
+
+    // Idempotência da sincronização offline versionada.
+    // Uma operação é única por conta + entidade + ID da operação.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sync_operations (
+        operation_id TEXT NOT NULL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        base_version INTEGER,
+        status TEXT NOT NULL DEFAULT 'processing',
+        response_status INTEGER,
+        response_body JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMPTZ,
+        PRIMARY KEY (operation_id, account_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS sync_operations_entity_idx
+      ON sync_operations(account_id, entity_type, entity_id)
+    `);
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2)`);
 
     await pool.query(`
