@@ -338,8 +338,12 @@ export async function syncOfflineQueue(): Promise<void> {
         }
         hadError = true;
         const msg = error instanceof Error ? error.message : 'Falha ao sincronizar assinatura';
-        await updateQueueFailure(item.id, msg);
-        if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
+        if (Number((error as any)?.status) === 409) {
+          await markQueueManualRecovery(item.id, `Conflito de sincronização da assinatura: a OS foi alterada no servidor antes desta assinatura offline. ${msg}`);
+        } else {
+          await updateQueueFailure(item.id, msg);
+          if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
+        }
       }
     }
 
