@@ -357,6 +357,37 @@ export async function syncOfflineQueue(): Promise<void> {
       await removeQueueItem(item.id);
     }
 
+    // 5. Process Signatures
+    const signatureItems = recoverableQueue.filter(i => i.type === 'signature_upload');
+    for (const item of signatureItems) {
+      if (!navigator.onLine) break;
+      if (item.orderId && orderDeleteIds.has(item.orderId)) {
+        await removeQueueItem(item.id);
+        continue;
+      }
+      try {
+        await markQueueAttempt(item.id);
+        await syncSignature(item);
+        await removeQueueItem(item.id);
+        didSync = true;
+      } catch (error) {
+        if (isNetworkError(error)) {
+          running = false;
+          state = 'error';
+          emit();
+          return;
+        }
+        hadError = true;
+        const msg = error instanceof Error ? error.message : 'Falha ao sincronizar assinatura';
+        if (Number((error as any)?.status) === 409) {
+          await markQueueManualRecovery(item.id, `Conflito de sincronização da assinatura: a OS foi alterada no servidor antes desta assinatura offline. ${msg}`);
+        } else {
+          await updateQueueFailure(item.id, msg);
+          if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
+        }
+      }
+    }
+
     // 6. Process Order Deletes
     const deleteItems = recoverableQueue.filter(i => i.type === 'order_delete');
     for (const item of deleteItems) {
@@ -426,34 +457,3 @@ export function startOfflineSync() {
   window.setInterval(kick, 5000);
   kick();
 }
-    // 5. Process Signatures
-    const signatureItems = recoverableQueue.filter(i => i.type === 'signature_upload');
-    for (const item of signatureItems) {
-      if (!navigator.onLine) break;
-      if (item.orderId && orderDeleteIds.has(item.orderId)) {
-        await removeQueueItem(item.id);
-        continue;
-      }
-      try {
-        await markQueueAttempt(item.id);
-        await syncSignature(item);
-        await removeQueueItem(item.id);
-        didSync = true;
-      } catch (error) {
-        if (isNetworkError(error)) {
-          running = false;
-          state = 'error';
-          emit();
-          return;
-        }
-        hadError = true;
-        const msg = error instanceof Error ? error.message : 'Falha ao sincronizar assinatura';
-        if (Number((error as any)?.status) === 409) {
-          await markQueueManualRecovery(item.id, `Conflito de sincronização da assinatura: a OS foi alterada no servidor antes desta assinatura offline. ${msg}`);
-        } else {
-          await updateQueueFailure(item.id, msg);
-          if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
-        }
-      }
-    }
-
