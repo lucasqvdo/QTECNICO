@@ -71,7 +71,8 @@ async function activeIdentity():Promise<{accountId:number;userId:number}>{
     tx.oncomplete=()=>{
       const raw=req.result?.value?.accountId;
       const id=raw!=null?Number(raw):NaN;
-      const userId=Number(req.result?.value?.id);\n      if(Number.isInteger(id)&&id>0&&Number.isInteger(userId)&&userId>0)resolve({accountId:id,userId});
+      const userId=Number(req.result?.value?.id);
+      if(Number.isInteger(id)&&id>0&&Number.isInteger(userId)&&userId>0)resolve({accountId:id,userId});
       else reject(new Error('Conta ou usuário offline não identificado. Faça login novamente para inicializar o armazenamento local.'));
     };
     tx.onerror=()=>reject(tx.error||new Error('Não foi possível identificar a conta offline.'));
@@ -87,7 +88,7 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
   if(!Number.isInteger(accountId)||accountId<=0||!Number.isInteger(userId)||userId<=0){
     throw new Error('Conta offline inválida.');
   }
-  const tx=db.transaction([ORDERS,CLIENTS,QUEUE,META],'readwrite');\n  const previousUserReq=tx.objectStore(META).get('user');
+  const tx=db.transaction([ORDERS,CLIENTS,QUEUE,META],'readwrite');
   for(const name of [ORDERS,CLIENTS,QUEUE]){
     const store=tx.objectStore(name), req=store.getAll();
     req.onsuccess=()=>{for(const item of req.result||[]){
@@ -103,9 +104,6 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
           store.delete(item.id);
           store.put({...migrated,id:scopedId});
         }
-      } else if(name===QUEUE && Number(item.accountId)===accountId && item.userId==null && Number(previousUser?.id)===userId){
-        // A queue created by this same user before user-scoping was introduced can be safely claimed.
-        store.put({...item,userId,legacyUserId:undefined});
       }
     }};
   }
