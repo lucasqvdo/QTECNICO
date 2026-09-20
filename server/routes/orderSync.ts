@@ -18,7 +18,7 @@ function isSafeStorageKey(key: unknown, accountId: number, folder: string) {
   return key.startsWith(`${folder}/${accountId}/`);
 }
 
-async function buildOrder(orderId: string, accountId: number, executor: { query: (text: string, params?: any[]) => Promise<any> } = pool) {
+async function buildOrder(orderId: string, accountId: number, executor: { query: (text: string, params?: any[]) => Promise<any> } = pool, includeFinancial = false) {
   const orderRes = await executor.query('SELECT * FROM orders WHERE id=$1 AND account_id=$2', [orderId, accountId]);
   const o = orderRes.rows[0];
   if (!o) return null;
@@ -29,11 +29,26 @@ async function buildOrder(orderId: string, accountId: number, executor: { query:
   for (const p of photoRes.rows) {
     (photosByAtt[p.attendance_id] ||= []).push({ id: p.id, key: p.data_url, dataUrl: await getDownloadUrl(p.data_url), name: p.name });
   }
+  const financial = includeFinancial ? await (async () => {
+    const [expenses, payments] = await Promise.all([
+      executor.query('SELECT * FROM expenses WHERE account_id=$1 AND order_id=$2', [accountId, orderId]),
+      executor.query('SELECT * FROM order_payments WHERE account_id=$1 AND order_id=$2 ORDER BY date ASC', [accountId, orderId])
+    ]);
+    return {
+      clientValue: parseFloat(o.client_value),
+      paymentStatus: o.payment_status,
+      paidDate: o.paid_date ? (o.paid_date instanceof Date ? o.paid_date.toISOString().split('T')[0] : String(o.paid_date).split('T')[0]) : undefined,
+      paidAmount: o.paid_amount != null ? parseFloat(o.paid_amount) : undefined,
+      expenses: expenses.rows.map((e:any)=>({id:e.id,label:e.label,amount:parseFloat(e.amount)})),
+      payments: payments.rows.map((p:any)=>({id:p.id,orderId:p.order_id,label:p.label,amount:parseFloat(p.amount),date:p.date instanceof Date?p.date.toISOString().split('T')[0]:String(p.date).split('T')[0],status:p.status}))
+    };
+  })() : null;
+
   const ids = Array.isArray(o.assigned_technician_ids) && o.assigned_technician_ids.length ? o.assigned_technician_ids : o.assigned_technician_id ? [o.assigned_technician_id] : [];
   const techRes = ids.length ? await executor.query('SELECT id,name FROM users WHERE account_id=$1 AND id=ANY($2)', [accountId, ids]) : { rows: [] as any[] };
   const techMap = new Map(techRes.rows.map((t: any) => [Number(t.id), t.name]));
   const assignedTechnicians = ids.map((id: number) => ({ id: Number(id), name: techMap.get(Number(id)) || 'Técnico' }));
-  return { id: o.id, clientId: o.client_id, client: o.client_name, address: o.address, phone: o.phone, type: o.type, status: o.status, date: o.date instanceof Date ? o.date.toISOString().split('T')[0] : String(o.date || '').split('T')[0], priority: o.priority, description: o.description, clientSignature: (await getDownloadUrl(o.client_signature)) ?? undefined, clientSignatureKey: o.client_signature ?? undefined, syncVersion: Number(o.sync_version ?? 1), assignedTechnicianId: ids[0] ?? undefined, assignedTechnicianName: assignedTechnicians[0]?.name ?? undefined, assignedTechnicianIds: ids, assignedTechnicians, attendances: attRes.rows.map((a: any) => ({ id: a.id, startTime: a.start_time instanceof Date ? a.start_time.toISOString() : a.start_time, endTime: a.end_time instanceof Date ? a.end_time.toISOString() : a.end_time, durationSeconds: a.duration_seconds, description: a.description, photos: photosByAtt[a.id] || [] })) };
+  return { id: o.id, clientId: o.client_id, client: o.client_name, address: o.address, phone: o.phone, type: o.type, status: o.status, date: o.date instanceof Date ? o.date.toISOString().split('T')[0] : String(o.date || '').split('T')[0], priority: o.priority, description: o.description, clientSignature: (await getDownloadUrl(o.client_signature)) ?? undefined, clientSignatureKey: o.client_signature ?? undefined, syncVersion: Number(o.sync_version ?? 1), assignedTechnicianId: ids[0] ?? undefined, assignedTechnicianName: assignedTechnicians[0]?.name ?? undefined, assignedTechnicianIds: ids, assignedTechnicians, attendances: attRes.rows.map((a: any) => ({ id: a.id, startTime: a.start_time instanceof Date ? a.start_time.toISOString() : a.start_time, endTime: a.end_time instanceof Date ? a.end_time.toISOString() : a.end_time, durationSeconds: a.duration_seconds, description: a.description, photos: photosByAtt[a.id] || [] })), ...(financial || {}) };
 }
 
 router.put('/:id/sync', requireAuth, async (req, res) => {
@@ -76,7 +91,7 @@ router.put('/:id/sync', requireAuth, async (req, res) => {
 
     const currentVersion = Number(existing.sync_version ?? 1);
     if (Number.isFinite(baseVersion) && baseVersion !== currentVersion) {
-      const conflict = { error:'Conflito de versão', code:'SYNC_CONFLICT', operationId, currentVersion, serverOrder: await buildOrder(id, accountId, db) };
+      const conflict = { error:'Conflito de versão', code:'SYNC_CONFLICT', operationId, currentVersion, serverOrder: await buildOrder(id, accountId, db, isAdmin) };
       if (operationId) await db.query(`UPDATE sync_operations SET status='conflict',response_status=409,response_body=$1::jsonb,processed_at=now() WHERE operation_id=$2 AND account_id=$3`, [JSON.stringify(conflict), operationId, accountId]);
       await db.query('COMMIT');
       return res.status(409).json(conflict);
@@ -173,7 +188,7 @@ router.put('/:id/sync', requireAuth, async (req, res) => {
       }
     }
 
-    const result = await buildOrder(id, accountId, db);
+    const result = await buildOrder(id, accountId, db, isAdmin);
     if (!result) {
       await db.query('ROLLBACK');
       return res.status(404).json({ error:'Ordem não encontrada após sincronização' });
