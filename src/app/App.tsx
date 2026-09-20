@@ -17,7 +17,7 @@ import { Screen, OrderStatus, ServiceOrder, Client, Attendance, AttendancePhoto,
 import { clearOfflineIdentity } from "./offlineStore";
 import { api } from "./api";
 import SecureLoginScreen from "./components/SecureLoginScreen";
-import { exportPDF } from "./exportPDF";
+import { exportClientPDF, exportAdminPDF } from "./exportPDF";
 
 /* ─── Configs ───────────────────────────────────────────────── */
 
@@ -845,10 +845,13 @@ function OrderDetail({ order, client, techName, onClose, onUpdate }: {
             <p className="font-mono text-xs text-primary-foreground/60">{order.id}</p>
             <h2 className="font-semibold text-base truncate">{order.type}</h2>
           </div>
-          <button onClick={() => exportPDF(order, client, techName)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors">
-            <Download size={14} /> PDF
-          </button>
+          <div className="flex items-center gap-1.5">
+          <button onClick={() => void exportClientPDF(order, client, techName)} title="PDF para enviar ao cliente"
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors"><Download size={14} /> Cliente</button>
+          <button onClick={() => void exportAdminPDF(order, client, techName)} title="PDF administrativo com informações financeiras"
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 transition-colors"><FileText size={14} /> Administrativo</button>
+        </div>
+
         </div>
       </div>
 
