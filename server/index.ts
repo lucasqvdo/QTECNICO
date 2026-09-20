@@ -262,29 +262,36 @@ async function initDb() {
   }
 }
 
-initDb().then(() => {
-  app.use('/api', (_req, res) => {
-    res.status(404).json({ error: 'Rota da API não encontrada' });
-  });
+// Register the final fallback/static handlers before boot so the HTTP server can
+// bind to Render's PORT immediately, while database initialization happens in the
+// background. /api/health reports 503 until the database is ready.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Rota da API não encontrada' });
+});
 
-  // Serve frontend build if dist/ exists (production)
-  const distPath = path.join(__dirname, '..', 'dist');
-  if (existsSync(path.join(distPath, 'index.html'))) {
-    app.use(express.static(distPath, {
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith('sw.js')) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        } else if (filePath.endsWith('.webmanifest') || filePath.endsWith('manifest.json')) {
-          res.setHeader('Cache-Control', 'public, max-age=3600');
-        } else if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        }
+// Serve frontend build if dist/ exists (production)
+const distPath = path.join(__dirname, '..', 'dist');
+if (existsSync(path.join(distPath, 'index.html'))) {
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('sw.js')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (filePath.endsWith('.webmanifest') || filePath.endsWith('manifest.json')) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+      } else if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
-    }));
-    app.use((_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+    }
+  }));
+  app.use((_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
-  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Servidor HTTP ouvindo na porta ${PORT}`);
+  initDb().catch((error) => {
+    console.error('❌ Falha fatal ao inicializar banco:', error);
+    process.exit(1);
+  });
 });
