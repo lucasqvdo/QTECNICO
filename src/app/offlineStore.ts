@@ -2,7 +2,7 @@ import type { ServiceOrder, AttendancePhoto, Client } from './types';
 import type { UserProfile, TeamMember } from './api';
 
 const DB_NAME = 'qtecnico-offline';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const ORDERS = 'orders';
 const CLIENTS = 'clients';
 const META = 'meta';
@@ -43,7 +43,7 @@ function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{
     if(!db.objectStoreNames.contains(CLIENTS))db.createObjectStore(CLIENTS,{keyPath:'id'});
     if(!db.objectStoreNames.contains(META))db.createObjectStore(META,{keyPath:'key'});
     if(!db.objectStoreNames.contains(QUEUE))db.createObjectStore(QUEUE,{keyPath:'id'});
-    if(request.transaction && db.version===5){
+    if(request.transaction && db.version>=6){
       const tx=request.transaction, meta=tx.objectStore(META);
       const legacyUserReq=meta.get('user');
       legacyUserReq.onsuccess=()=>{
@@ -94,7 +94,7 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
     req.onsuccess=()=>{for(const item of req.result||[]){
       // Only migrate legacy rows whose previous user identity is known and matches.
       // Unattributed legacy rows stay quarantined instead of being assigned to a new account.
-      if(item.accountId==null&&item.legacyUserId!=null&&Number(item.legacyUserId)===userId){
+      if((item.accountId==null&&item.legacyUserId!=null&&Number(item.legacyUserId)===userId)||(Number(item.accountId)===accountId&&(!item.userId||Number(item.userId)===userId))){
         const migrated={...item,accountId,legacyUserId:undefined,userId,id:item.id};
         store.put(migrated);
         // Keep the legacy key only when it is already the scoped key; otherwise
@@ -170,7 +170,7 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
     }
 
     for(const existing of existingOrdersResult){
-      if(Number(existing.accountId)===accountId)os.delete(existing.id);
+      if(Number(existing.accountId)===accountId&&Number(existing.userId)===userId)os.delete(existing.id);
     }
     for(const order of orders){
       const oid=String(order.id);
@@ -208,7 +208,7 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
     }
 
     tx.objectStore(META).put({key:'user',value:user});
-    tx.objectStore(META).put({key:'last_server_sync:'+accountId,value:Date.now()});
+    tx.objectStore(META).put({key:'last_server_sync:'+accountId+':'+userId,value:Date.now()});
   };
 
   pendingReq.onsuccess=()=>{pendingResult=pendingReq.result||[];tryProcess();};
@@ -223,22 +223,22 @@ export async function cacheOrders(orders:ServiceOrder[]){const queue=await getQu
 export async function cacheClients(clients:Client[]){const {accountId,userId}=await activeIdentity(),queue=await getQueue(),deleted=new Set(queue.filter(q=>q.type==='client_delete').map(q=>String(q.clientId))),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite'),s=tx.objectStore(CLIENTS),existingReq=s.getAll();existingReq.onsuccess=()=>{for(const existing of existingReq.result||[])if(Number(existing.accountId)===accountId&&Number(existing.userId)===userId)s.delete(existing.id);for(const c of clients)if(!deleted.has(String(c.id)))s.put({id:`${accountId}:${userId}:${c.id}`,accountId,userId,value:c});};await txDone(tx);}
 export async function putClient(client:Client){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).put({id:`${accountId}:${userId}:${client.id}`,accountId,userId,value:client});await txDone(tx);}
 export async function removeCachedClient(id:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).delete(`${accountId}:${userId}:${id}`);await txDone(tx);}
-export async function queueClientCreate(client:Client){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_create:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_create',orderId:'',clientId:client.id,client,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${userId}:${client.id}`,accountId,userId,value:client});await txDone(tx);}
-export async function queueClientUpdate(client:Client){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_update:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_update',orderId:'',clientId:client.id,client,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${userId}:${client.id}`,accountId,userId,value:client});await txDone(tx);}
-export async function queueClientDelete(clientId:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_delete:${clientId}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_delete',orderId:'',clientId,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).delete(`${accountId}:${userId}:${clientId}`);await txDone(tx);}
-export async function cacheTeam(team:TeamMember[]){const {accountId}=await activeIdentity(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`team:${accountId}`,value:team});await txDone(tx);}
+export async function queueClientCreate(client:Client){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:${userId}:client_create:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_create',orderId:'',clientId:client.id,client,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${userId}:${client.id}`,accountId,userId,value:client});await txDone(tx);}
+export async function queueClientUpdate(client:Client){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:${userId}:client_update:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_update',orderId:'',clientId:client.id,client,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${userId}:${client.id}`,accountId,userId,value:client});await txDone(tx);}
+export async function queueClientDelete(clientId:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:${userId}:client_delete:${clientId}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_delete',orderId:'',clientId,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).delete(`${accountId}:${userId}:${clientId}`);await txDone(tx);}
+export async function cacheTeam(team:TeamMember[]){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`team:${accountId}:${userId}`,value:team});await txDone(tx);}
 export async function getCachedTeam():Promise<TeamMember[]>{try{const {accountId,userId}=await activeIdentity(),db=await openDb();return new Promise((resolve)=>{const tx=db.transaction(META,'readonly'),req=tx.objectStore(META).get(`team:${accountId}:${userId}`);tx.oncomplete=()=>resolve(Array.isArray(req.result?.value)?req.result.value:[]);tx.onerror=()=>resolve([]);});}catch{return[];}}
 export async function updateCachedPhoto(orderId:string,attendanceId:string,photoId:string,uploadedKey:string,uploadedUrl:string){try{const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite'),s=tx.objectStore(ORDERS),req=s.get(`${accountId}:${userId}:${orderId}`);req.onsuccess=()=>{const row=req.result;if(row&&row.value){const o=row.value as ServiceOrder;const nextAtts=(o.attendances||[]).map(a=>{if(a.id!==attendanceId)return a;return{...a,photos:(a.photos||[]).map(p=>p.id===photoId?{...p,key:uploadedKey,dataUrl:uploadedUrl}:p)};});s.put({...row,value:{...o,attendances:nextAtts}});}};await txDone(tx);}catch(e){console.warn('Não foi possível atualizar foto no cache offline:',e);}}
 async function enqueue(item:Omit<QueueItem,'accountId'|'userId'>,order:ServiceOrder){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');const scopedId=`${accountId}:${userId}:${item.id}`;tx.objectStore(QUEUE).put({...item,id:scopedId,accountId,userId});tx.objectStore(ORDERS).put({id:`${accountId}:${userId}:${order.id}`,accountId,userId,value:order});await txDone(tx);}
 export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();await enqueue({id:`create:${order.id}`,type:'order_create',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
-export async function queueOrderUpdate(order:ServiceOrder){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:order:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'order_update',orderId:order.id,order,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});};await txDone(tx);}
+export async function queueOrderUpdate(order:ServiceOrder){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:${userId}:order:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'order_update',orderId:order.id,order,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});};await txDone(tx);}
 export async function queueOrderDelete(orderId:string,fallbackOrder?:ServiceOrder){
   const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');
   const queueStore=tx.objectStore(QUEUE),ordersStore=tx.objectStore(ORDERS);
-  const scopedId=`${accountId}:delete:${orderId}`;
+  const scopedId=`${accountId}:${userId}:delete:${orderId}`;
   // Never delete an unscoped key here: it may belong to a legacy record
   // that cannot be safely attributed to the current account.
-  ordersStore.delete(`${accountId}:${orderId}`);
+  ordersStore.delete(`${accountId}:${userId}:${orderId}`);
   const queueReq=queueStore.getAll();
   queueReq.onsuccess=()=>{
     const items=(queueReq.result||[]) as QueueItem[];
@@ -269,7 +269,7 @@ export async function queueOrderDelete(orderId:string,fallbackOrder?:ServiceOrde
 }
 export async function removeCachedOrder(id:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).delete(`${accountId}:${userId}:${id}`);await txDone(tx);}
 export async function queueAttendancePhoto(order:ServiceOrder,attendanceId:string,photoId:string,file:Blob,fileName:string){const now=Date.now();await enqueue({id:`photo:${order.id}:${photoId}`,type:'attendance_photo',orderId:order.id,attendanceId,photoId,order,file,fileName,createdAt:now,updatedAt:now,attempts:0},order);}
-export async function queueSignatureUpload(order:ServiceOrder,file:Blob,fileName:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:signature:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'signature_upload',orderId:order.id,order,file,fileName,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});tx.objectStore(ORDERS).put({id:`${accountId}:${userId}:${order.id}`,accountId,userId,value:order});};await txDone(tx);}
+export async function queueSignatureUpload(order:ServiceOrder,file:Blob,fileName:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:${userId}:signature:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'signature_upload',orderId:order.id,order,file,fileName,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});tx.objectStore(ORDERS).put({id:`${accountId}:${userId}:${order.id}`,accountId,userId,value:order});};await txDone(tx);}
 function normalizeQueueItem(raw:any):QueueItem{
   const rawId=String(raw?.id??'');
   const scopedPrefix=raw.accountId!=null?String(raw.accountId)+':':'';
@@ -370,6 +370,6 @@ export async function clearLegacyRecoveryItems(){
   await txDone(tx);
 }
 export async function removeQueueItem(id:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId&&Number(item.userId)===userId)s.delete(id);};await txDone(tx);}
-export async function getLastServerSync():Promise<number|null>{const {accountId}=await activeIdentity(),db=await openDb();return new Promise((resolve,reject)=>{const tx=db.transaction(META,'readonly'),req=tx.objectStore(META).get(`last_server_sync:${accountId}`);tx.oncomplete=()=>resolve(typeof req.result?.value==='number'?req.result.value:null);tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler o estado offline.'));});}
-export async function markServerSync(){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`last_server_sync:${accountId}`,value:Date.now()});await txDone(tx);}
+export async function getLastServerSync():Promise<number|null>{const {accountId,userId}=await activeIdentity(),db=await openDb();return new Promise((resolve,reject)=>{const tx=db.transaction(META,'readonly'),req=tx.objectStore(META).get(`last_server_sync:${accountId}:${userId}`);tx.oncomplete=()=>resolve(typeof req.result?.value==='number'?req.result.value:null);tx.onerror=()=>reject(tx.error||new Error('Não foi possível ler o estado offline.'));});}
+export async function markServerSync(){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`last_server_sync:${accountId}:${userId}`,value:Date.now()});await txDone(tx);}
 export type {AttendancePhoto};
