@@ -43,19 +43,9 @@ function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{
     if(!db.objectStoreNames.contains(CLIENTS))db.createObjectStore(CLIENTS,{keyPath:'id'});
     if(!db.objectStoreNames.contains(META))db.createObjectStore(META,{keyPath:'key'});
     if(!db.objectStoreNames.contains(QUEUE))db.createObjectStore(QUEUE,{keyPath:'id'});
-    if(request.transaction && db.version>=6){
-      const tx=request.transaction, meta=tx.objectStore(META);
-      const legacyUserReq=meta.get('user');
-      legacyUserReq.onsuccess=()=>{
-        const legacyUser=legacyUserReq.result?.value;
-        if(!legacyUser?.id)return;
-        const legacyUserId=Number(legacyUser.id);
-        for(const name of [ORDERS,CLIENTS,QUEUE]){
-          const s=tx.objectStore(name), req=s.getAll();
-          req.onsuccess=()=>{for(const item of req.result||[]){if(item.accountId==null)s.put({...item,legacyUserId});}};
-        }
-      };
-    }
+    // Never infer ownership of unscoped legacy records from the last cached user.
+    // Records without an explicit accountId/userId remain quarantined and are never
+    // assigned to the current account during a schema upgrade.
   };
   request.onsuccess=()=>{const db=request.result;db.onversionchange=()=>db.close();resolve(db);};
   request.onerror=()=>reject(request.error||new Error('Não foi possível abrir o armazenamento local.'));
