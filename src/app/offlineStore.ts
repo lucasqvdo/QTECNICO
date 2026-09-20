@@ -232,7 +232,7 @@ async function enqueue(item:Omit<QueueItem,'accountId'|'userId'>,order:ServiceOr
 export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();await enqueue({id:`create:${order.id}`,type:'order_create',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueOrderUpdate(order:ServiceOrder){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:order:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'order_update',orderId:order.id,order,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});};await txDone(tx);}
 export async function queueOrderDelete(orderId:string,fallbackOrder?:ServiceOrder){
-  const accountId=await activeAccountId(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');
+  const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');
   const queueStore=tx.objectStore(QUEUE),ordersStore=tx.objectStore(ORDERS);
   const scopedId=`${accountId}:delete:${orderId}`;
   // Never delete an unscoped key here: it may belong to a legacy record
@@ -309,7 +309,7 @@ function normalizeQueueItem(raw:any):QueueItem{
   return {...raw,id:rawId,type:inferredType,orderId:inferredOrderId,clientId:inferredClientId,accountId:Number(raw?.accountId),userId:Number(raw?.userId),createdAt,updatedAt,attempts:Number.isFinite(attempts)&&attempts>=0?attempts:0} as QueueItem;
 }
 export async function getQueue():Promise<QueueItem[]>{
-  const accountId=await activeAccountId(),db=await openDb();
+  const {accountId,userId}=await activeIdentity(),db=await openDb();
   const rawRows=await new Promise<any[]>((resolve,reject)=>{
     const tx=db.transaction([QUEUE,ORDERS],'readonly');
     const queueReq=tx.objectStore(QUEUE).getAll();
@@ -354,12 +354,12 @@ export async function getQueue():Promise<QueueItem[]>{
 export async function updateQueueUpload(id:string,uploadedKey:string,uploadedUrl:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId&&Number(item.userId)===userId)s.put({...item,uploadedKey,uploadedUrl,updatedAt:Date.now()});};await txDone(tx);}
 export async function markQueueManualRecovery(id:string,error:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId&&Number(item.userId)===userId)s.put({...item,manualRecovery:true,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
 export async function markQueueAttempt(id:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId&&Number(item.userId)===userId)s.put({...item,attempts:item.attempts+1,lastError:undefined,updatedAt:Date.now()});};await txDone(tx);}
-export async function updateQueueFailure(id:string,error:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId)s.put({...item,attempts:item.attempts+1,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
+export async function updateQueueFailure(id:string,error:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.get(id);req.onsuccess=()=>{const item=req.result as QueueItem|undefined;if(item&&Number(item.accountId)===accountId&&Number(item.userId)===userId)s.put({...item,attempts:item.attempts+1,lastError:error,updatedAt:Date.now()});};await txDone(tx);}
 export async function clearLegacyRecoveryItems(){
   const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),req=s.getAll();
   req.onsuccess=()=>{
     for(const item of (req.result||[]) as QueueItem[]){
-      if(Number(item.accountId)!==accountId)continue;
+      if(Number(item.accountId)!==accountId||Number(item.userId)!==userId)continue;
       const rawId=String(item.id||'');
       const localId=rawId.startsWith(String(accountId)+':')?rawId.slice(String(accountId).length+1):rawId;
       const stale=localId==='attendance-photo:photo-1789664640520-nq756x'||localId.startsWith('upload:offline/attendances/1789664640256-44kocpd3-')||localId.startsWith('upload:offline/signatures/1789665097641-q2rp0e27-');
