@@ -50,11 +50,9 @@ function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{
         const legacyUser=legacyUserReq.result?.value;
         if(!legacyUser?.id)return;
         const legacyUserId=Number(legacyUser.id);
-        let previousUser:any=null;\n  previousUserReq.onsuccess=()=>{previousUser=previousUserReq.result?.value||null;};\n  for(const name of [ORDERS,CLIENTS,QUEUE]){
+        for(const name of [ORDERS,CLIENTS,QUEUE]){
           const s=tx.objectStore(name), req=s.getAll();
-          req.onsuccess=()=>{for(const item of req.result||[]){
-            if(item.accountId==null)s.put({...item,legacyUserId});
-          }};
+          req.onsuccess=()=>{for(const item of req.result||[]){if(item.accountId==null)s.put({...item,legacyUserId});}};
         }
       };
     }
