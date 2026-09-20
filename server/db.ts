@@ -85,8 +85,24 @@ async function reconcileWebAuthnSchema() {
   const tableCheck = await pool.query(`SELECT to_regclass('public.webauthn_challenges') AS table_name`);
   if (tableCheck.rows[0]?.table_name) {
     await pool.query(`ALTER TABLE webauthn_challenges ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'authentication'`);
-    await pool.query(`ALTER TABLE webauthn_challenges DROP CONSTRAINT IF EXISTS webauthn_challenges_type_check`);
-    await pool.query(`ALTER TABLE webauthn_challenges ADD CONSTRAINT webauthn_challenges_type_check CHECK (type IN ('registration', 'authentication'))`);
+    // Multiple Render instances can boot against the same database at once.
+    // Make constraint creation race-safe instead of relying on DROP + ADD.
+    await pool.query(`DO $ BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'webauthn_challenges'::regclass
+          AND conname = 'webauthn_challenges_type_check'
+      ) THEN
+        BEGIN
+          ALTER TABLE webauthn_challenges
+            ADD CONSTRAINT webauthn_challenges_type_check
+            CHECK (type IN ('registration', 'authentication'));
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
+      END IF;
+    END $;`);
   }
   await pool.query(`CREATE TABLE IF NOT EXISTS webauthn_auth_challenges (challenge TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await pool.query(`CREATE INDEX IF NOT EXISTS webauthn_auth_challenges_expires_at_idx ON webauthn_auth_challenges (expires_at)`);
