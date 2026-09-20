@@ -131,6 +131,7 @@ export async function getOfflineSnapshot():Promise<OfflineSnapshot>{
 }
 
 export async function cacheUser(user:UserProfile|null):Promise<void>{if(!user)return;const db=await openDb();await migrateLegacyForUser(db,user);}
+export async function clearOfflineIdentity():Promise<void>{const db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).delete('user');await txDone(tx);}
 export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,clients?:Client[]):Promise<void>{
   if(!user?.accountId)throw new Error('Conta offline não identificada.');
   const db=await openDb();
