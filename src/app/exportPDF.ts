@@ -1,120 +1,209 @@
 import type { ServiceOrder, Client } from "./types";
 import { STATUS_CONFIG, fmt, fmtDuration, fmtDateTime } from "./config";
+import { api, type CompanyProfileData } from "./api";
 
-export function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") {
-  const totalExpenses = order.expenses.reduce((s, e) => s + e.amount, 0);
-  const margem = order.clientValue - totalExpenses;
+const esc = (value: unknown) => String(value ?? "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#39;");
+
+const safeUrl = (value: unknown) => {
+  const url = String(value ?? "").trim();
+  if (!url) return "";
+  if (url.startsWith("data:image/") || url.startsWith("https://") || url.startsWith("http://")) return url;
+  return "";
+};
+
+const companyAddress = (company?: CompanyProfileData | null) =>
+  [company?.address, company?.number, company?.complement, company?.neighborhood]
+    .filter(Boolean).join(", ") +
+  ([company?.city, company?.state, company?.postalCode].filter(Boolean).length
+    ? ` — ${[company?.city, company?.state].filter(Boolean).join("/")}${company?.postalCode ? ` · CEP ${company.postalCode}` : ""}`
+    : "");
+
+const waitForImages = async (doc: Document) => {
+  const images = Array.from(doc.images);
+  await Promise.all(images.map((img) => img.complete
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        const done = () => { img.removeEventListener("load", done); img.removeEventListener("error", done); resolve(); };
+        img.addEventListener("load", done);
+        img.addEventListener("error", done);
+      })));
+};
+
+export async function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") {
+  const win = window.open("", "_blank");
+  if (!win) {
+    window.alert("O navegador bloqueou a janela do PDF. Permita pop-ups para este site e tente novamente.");
+    return;
+  }
+
+  let company: CompanyProfileData | null = null;
+  try { company = await api.getDocumentCompanyProfile(); } catch { /* PDF continua com cabeçalho padrão/offline. */ }
+
+  const totalExpenses = order.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const margem = Number(order.clientValue || 0) - totalExpenses;
   const status = STATUS_CONFIG[order.status];
+  const payments = order.payments || [];
+  const paid = payments.length
+    ? payments.filter((payment) => payment.status === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+    : (order.paymentStatus === "paid" ? Number(order.paidAmount ?? order.clientValue ?? 0) : 0);
+  const pending = payments.length
+    ? payments.filter((payment) => payment.status === "pending").reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+    : Math.max(0, Number(order.clientValue || 0) - paid);
+  const hasFinancialData = totalExpenses > 0 || Number(order.clientValue || 0) > 0 || payments.length > 0;
+
+  const logoUrl = safeUrl(company?.logoUrl || company?.logoKey);
+  const companyName = company?.tradeName || company?.legalName || "QTECNICO";
+  const companyDocument = company?.document ? `CNPJ/CPF: ${esc(company.document)}` : "";
+  const contactParts = [company?.phone, company?.whatsapp ? `WhatsApp: ${company.whatsapp}` : "", company?.email].filter(Boolean);
+  const address = companyAddress(company);
 
   const attendanceRows = order.attendances.map((att) => {
-    const photoImgs = att.photos.map(p =>
-      `<img src="${p.dataUrl}" style="width:180px;height:120px;object-fit:cover;border-radius:6px;margin:4px;" alt="${p.name}" />`
-    ).join("");
+    const photoImgs = att.photos.map((photo) => {
+      const src = safeUrl(photo.dataUrl);
+      return src ? `<img class="photo" src="${src}" alt="${esc(photo.name || "Foto do atendimento")}" />` : "";
+    }).join("");
     return `
-      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:12px;page-break-inside:avoid;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-          <span style="font-weight:600;color:#1A2B4A;">Atendimento — ${fmtDateTime(att.startTime)}</span>
-          <span style="background:#DBEAFE;color:#1D4ED8;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;">
-            Duração: ${fmtDuration(att.durationSeconds)}
-          </span>
+      <section class="attendance">
+        <div class="attendance-head">
+          <strong>Atendimento — ${esc(fmtDateTime(att.startTime))}</strong>
+          <span class="duration">Duração: ${esc(fmtDuration(att.durationSeconds))}</span>
         </div>
-        <p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 10px;">${att.description || "Sem descrição."}</p>
-        ${att.photos.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${photoImgs}</div>` : ""}
-      </div>`;
+        <p class="description">${esc(att.description || "Sem descrição.")}</p>
+        ${att.endTime ? `<div class="muted">Encerrado em ${esc(fmtDateTime(att.endTime))}</div>` : ""}
+        ${photoImgs ? `<div class="photos">${photoImgs}</div>` : ""}
+      </section>`;
   }).join("");
 
-  const expenseRows = order.expenses.map(e =>
-    `<tr><td style="padding:6px 0;color:#374151;">${e.label}</td><td style="padding:6px 0;text-align:right;font-weight:600;">${fmt(e.amount)}</td></tr>`
+  const expenseRows = order.expenses.map((expense) =>
+    `<tr><td>${esc(expense.label)}</td><td class="money">${fmt(Number(expense.amount || 0))}</td></tr>`
   ).join("");
+
+  const paymentRows = payments.map((payment) =>
+    `<tr><td>${esc(payment.label || "Pagamento")}</td><td>${esc(payment.date || "")}</td><td>${esc(payment.status === "paid" ? "Pago" : "Pendente")}</td><td class="money">${fmt(Number(payment.amount || 0))}</td></tr>`
+  ).join("");
+
+  const signatureUrl = safeUrl(order.clientSignature);
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8"/>
-  <title>OS ${order.id} — QTecnico</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:Arial,sans-serif;color:#0D1B2E;padding:32px;font-size:14px;}
-    h1{color:#1A2B4A;font-size:22px;margin-bottom:4px;}
-    h2{color:#1A2B4A;font-size:15px;margin:20px 0 10px;}
-    .badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-    .card{border:1px solid #e2e8f0;border-radius:8px;padding:14px;}
-    .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748B;font-weight:600;margin-bottom:4px;}
-    table{width:100%;border-collapse:collapse;}
-    td{vertical-align:top;}
-    .total-row td{font-weight:700;border-top:2px solid #e2e8f0;padding-top:8px;margin-top:4px;}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1A2B4A;padding-bottom:16px;margin-bottom:20px;}
-    .logo-text{font-size:24px;font-weight:900;color:#1A2B4A;}
-    .logo-text span{color:#29C5E8;}
-    @media print{body{padding:20px;}}
-  </style>
+<meta charset="utf-8"/>
+<title>OS ${esc(order.id)} — ${esc(companyName)}</title>
+<style>
+*{box-sizing:border-box}
+@page{size:A4;margin:14mm 13mm 16mm}
+body{font-family:Arial,Helvetica,sans-serif;color:#0D1B2E;font-size:12px;line-height:1.45;margin:0}
+h2{color:#1A2B4A;font-size:14px;margin:20px 0 9px;border-bottom:1px solid #dbe3ec;padding-bottom:5px}
+.header{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:3px solid #29C5E8;padding-bottom:12px;margin-bottom:16px}
+.brand{display:flex;gap:12px;align-items:flex-start;min-width:0}
+.logo{width:82px;height:48px;object-fit:contain;border-radius:4px}
+.brand-name{font-size:20px;font-weight:800;color:#1A2B4A}
+.brand-name span{color:#29C5E8}
+.meta{color:#64748B;font-size:10px;margin-top:3px}
+.os{text-align:right;min-width:130px}
+.os-id{font-size:18px;font-weight:800;color:#1A2B4A}
+.date{color:#64748B;font-size:10px;margin-top:2px}
+.badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;margin-top:5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{border:1px solid #dbe3ec;border-radius:7px;padding:11px;break-inside:avoid}
+.label{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#64748B;font-weight:700;margin-bottom:3px}
+.value{font-size:12px}
+.muted{color:#64748B;font-size:10px}
+.description{color:#374151;margin:7px 0 0;white-space:pre-wrap}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;background:#f1f5f9;color:#475569;font-size:9px;text-transform:uppercase;padding:6px}
+td{vertical-align:top;padding:6px;border-bottom:1px solid #edf1f5}
+.money{text-align:right;font-weight:700}
+.total td{border-top:2px solid #cbd5e1;font-weight:800}
+.attendance{border:1px solid #dbe3ec;border-radius:7px;padding:11px;margin-bottom:9px;break-inside:avoid}
+.attendance-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:6px;color:#1A2B4A}
+.duration{background:#DBEAFE;color:#1D4ED8;padding:3px 8px;border-radius:999px;font-size:9px;font-weight:700}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.photo{width:100%;height:120px;object-fit:cover;border-radius:5px;border:1px solid #e2e8f0}
+.signature{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:24px;break-inside:avoid}
+.signature-box{min-height:105px;border-bottom:1px solid #475569;position:relative;padding-top:8px}
+.signature-img{max-width:100%;height:75px;object-fit:contain;display:block;margin:0 auto}
+.footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:9px;color:#94A3B8;text-align:center}
+@media print{.no-print{display:none!important}.attendance,.card,.signature{break-inside:avoid}.photo{break-inside:avoid}}
+@media(max-width:700px){body{padding:12px}.grid2{grid-template-columns:1fr}.photos{grid-template-columns:repeat(2,1fr)}.header{flex-direction:column}.os{text-align:left}}
+</style>
 </head>
 <body>
-  <div class="header">
+<header class="header">
+  <div class="brand">
+    ${logoUrl ? `<img class="logo" src="${logoUrl}" alt="Logo"/>` : ""}
     <div>
-      <div class="logo-text">Q<span>Tecnico</span></div>
-      <div style="color:#64748B;font-size:12px;margin-top:2px;">Gestão de Ordens de Serviço</div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:18px;font-weight:700;color:#1A2B4A;">${order.id}</div>
-      <div style="color:#64748B;font-size:12px;">${new Date(order.date + "T12:00:00").toLocaleDateString("pt-BR")}</div>
-      <span class="badge" style="background:${STATUS_CONFIG[order.status].bg};color:${STATUS_CONFIG[order.status].color};margin-top:4px;">
-        ${status.label}
-      </span>
+      <div class="brand-name">${esc(companyName)}</div>
+      <div class="meta">${esc(company?.description || "Gestão de Ordens de Serviço")}</div>
+      ${companyDocument ? `<div class="meta">${companyDocument}</div>` : ""}
+      ${contactParts.length ? `<div class="meta">${esc(contactParts.join(" · "))}</div>` : ""}
+      ${address ? `<div class="meta">${esc(address)}</div>` : ""}
     </div>
   </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="label">Cliente</div>
-      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">${order.client}</div>
-      ${client ? `<div style="color:#64748B;font-size:13px;">${client.document}</div>` : ""}
-      <div style="color:#64748B;font-size:13px;margin-top:4px;">${order.address}</div>
-      <div style="color:#64748B;font-size:13px;">${order.phone}</div>
-    </div>
-    <div class="card">
-      <div class="label">Serviço</div>
-      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">${order.type}</div>
-      <div style="color:#374151;font-size:13px;line-height:1.5;">${order.description}</div>
-      <div style="margin-top:8px;font-size:12px;color:#64748B;">Técnico: <strong>${techName}</strong></div>
-    </div>
+  <div class="os">
+    <div class="os-id">${esc(order.id)}</div>
+    <div class="date">${esc(new Date(order.date + "T12:00:00").toLocaleDateString("pt-BR"))}</div>
+    <span class="badge" style="background:${status.bg};color:${status.color}">${esc(status.label)}</span>
   </div>
+</header>
 
-  <h2>Controle Financeiro</h2>
+<div class="grid2">
   <div class="card">
-    <table>
-      ${expenseRows}
-      <tr class="total-row">
-        <td>Total de custos</td>
-        <td style="text-align:right;">${fmt(totalExpenses)}</td>
-      </tr>
-      <tr>
-        <td style="padding-top:8px;">Valor do cliente</td>
-        <td style="text-align:right;padding-top:8px;color:#1A2B4A;font-weight:700;">${fmt(order.clientValue)}</td>
-      </tr>
-      <tr>
-        <td style="padding-top:4px;font-weight:700;">Margem</td>
-        <td style="text-align:right;padding-top:4px;font-weight:700;color:${margem >= 0 ? "#15803D" : "#B91C1C"};">${fmt(margem)}</td>
-      </tr>
-    </table>
+    <div class="label">Cliente</div>
+    <div class="value"><strong>${esc(order.client)}</strong></div>
+    ${client?.document ? `<div class="muted">${esc(client.document)}</div>` : ""}
+    <div class="muted">${esc(order.address)}</div>
+    <div class="muted">${esc(order.phone)}</div>
   </div>
-
-  <h2>Registros de Atendimento (${order.attendances.length})</h2>
-  ${order.attendances.length === 0
-    ? `<p style="color:#64748B;font-style:italic;">Nenhum atendimento registrado.</p>`
-    : attendanceRows}
-
-  <div style="margin-top:32px;border-top:1px solid #e2e8f0;padding-top:12px;font-size:11px;color:#94A3B8;text-align:center;">
-    Documento gerado pelo QTecnico em ${new Date().toLocaleString("pt-BR")}
+  <div class="card">
+    <div class="label">Serviço</div>
+    <div class="value"><strong>${esc(order.type)}</strong></div>
+    <div class="description">${esc(order.description)}</div>
+    <div class="muted" style="margin-top:6px">Técnico: <strong>${esc(techName)}</strong></div>
   </div>
+</div>
+
+${hasFinancialData ? `
+<h2>Resumo Financeiro</h2>
+<div class="card">
+  <table>
+    ${expenseRows}
+    ${totalExpenses ? `<tr class="total"><td>Total de custos</td><td class="money">${fmt(totalExpenses)}</td></tr>` : ""}
+    ${order.clientValue ? `<tr><td>Valor do cliente</td><td class="money">${fmt(order.clientValue)}</td></tr>` : ""}
+    ${order.clientValue ? `<tr><td>Margem</td><td class="money" style="color:${margem >= 0 ? "#15803D" : "#B91C1C"}">${fmt(margem)}</td></tr>` : ""}
+    ${payments.length ? `<tr><td>Recebido</td><td class="money">${fmt(paid)}</td></tr><tr><td>Saldo pendente</td><td class="money">${fmt(pending)}</td></tr>` : ""}
+  </table>
+</div>
+${paymentRows ? `<table style="margin-top:8px"><thead><tr><th>Pagamento</th><th>Data</th><th>Status</th><th style="text-align:right">Valor</th></tr></thead><tbody>${paymentRows}</tbody></table>` : ""}
+` : ""}
+
+<h2>Registros de Atendimento (${order.attendances.length})</h2>
+${order.attendances.length ? attendanceRows : '<p class="muted">Nenhum atendimento registrado.</p>'}
+
+${signatureUrl ? `
+<h2>Confirmação do cliente</h2>
+<div class="signature">
+  <div class="signature-box"><img class="signature-img" src="${signatureUrl}" alt="Assinatura do cliente"/><div class="muted">Assinatura do cliente</div></div>
+  <div class="signature-box"><div><strong>${esc(order.client)}</strong></div><div class="muted">Documento: ${esc(client?.document || "Não informado")}</div><div class="muted">Data: ${esc(new Date().toLocaleDateString("pt-BR"))}</div></div>
+</div>
+` : ""}
+
+<footer class="footer">Documento gerado pelo QTECNICO em ${esc(new Date().toLocaleString("pt-BR"))} · ${esc(companyName)}</footer>
+<script>
+window.addEventListener("load", async () => {
+  try { await Promise.all(Array.from(document.images).map(img => img.complete ? Promise.resolve() : new Promise(resolve => { img.addEventListener("load", resolve, {once:true}); img.addEventListener("error", resolve, {once:true}); }))); } catch {}
+  setTimeout(() => window.print(), 150);
+});
+</script>
 </body>
 </html>`;
 
-  const win = window.open("", "_blank");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    setTimeout(() => win.print(), 500);
-  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }
