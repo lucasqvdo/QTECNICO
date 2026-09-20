@@ -8,7 +8,7 @@ const CLIENTS = 'clients';
 const META = 'meta';
 const QUEUE = 'sync_queue';
 
-type ScopedRecord = { id:string; accountId:number; legacyUserId?:number; value:any };
+type ScopedRecord = { id:string; accountId:number; userId:number; legacyUserId?:number; value:any };
 export type QueueItem = {
   id:string;
   type:'order_create'|'order_update'|'order_delete'|'attendance_photo'|'signature_upload'|'client_create'|'client_update'|'client_delete'|'legacy_upload'|'invalid';
@@ -99,7 +99,7 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
         store.put(migrated);
         // Keep the legacy key only when it is already the scoped key; otherwise
         // remove the old unscoped record after copying it into the account scope.
-        const scopedId=String(accountId)+':'+String(item.id);
+        const scopedId=String(accountId)+':'+String(userId)+':'+String(item.id);
         if(String(item.id)!==scopedId){
           store.delete(item.id);
           store.put({...migrated,id:scopedId});
@@ -120,7 +120,7 @@ export async function getOfflineSnapshot():Promise<OfflineSnapshot>{
       const accountId=rawAccountId!=null?Number(rawAccountId):null;
       const scoped=(rows:any[])=>{
         if(Number.isInteger(accountId)&&(accountId as number)>0){
-          return rows.filter(x=>Number(x.accountId)===Number(accountId));
+          return rows.filter(x=>Number(x.accountId)===Number(accountId)&&Number(x.userId)===Number(req.result?.value?.id));
         }
         return [];
       };
@@ -175,7 +175,7 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
     for(const order of orders){
       const oid=String(order.id);
       if(!pendingDeletes.has(oid)&&!pendingOrders.has(oid)){
-        os.put({id:accountId+':'+order.id,accountId,value:order});
+        os.put({id:accountId+':'+userId+':'+order.id,accountId,userId,value:order});
       }
     }
     for(const [orderId,order] of pendingOrders.entries()){
@@ -186,12 +186,12 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
 
     if(clients&&cs&&existingClientsResult){
       for(const existing of existingClientsResult){
-        if(Number(existing.accountId)===accountId)cs.delete(existing.id);
+        if(Number(existing.accountId)===accountId&&Number(existing.userId)===userId)cs.delete(existing.id);
       }
       for(const client of clients){
         const cid=String(client.id);
         if(!pendingClientDeletes.has(cid)&&!pendingClientUpdates.has(cid)){
-          cs.put({id:accountId+':'+client.id,accountId,value:client});
+          cs.put({id:accountId+':'+userId+':'+client.id,accountId,userId,value:client});
         }
       }
       for(const [cid,client] of pendingClientUpdates.entries()){
@@ -218,17 +218,17 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
   }
 
   await txDone(tx);
-}async function putOrder(order:ServiceOrder){const {accountId}=await activeIdentity(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
+}async function putOrder(order:ServiceOrder){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).put({id:`${accountId}:${userId}:${order.id}`,accountId,userId,value:order});await txDone(tx);}
 export async function cacheOrders(orders:ServiceOrder[]){const queue=await getQueue();const deleted=new Set(queue.filter(q=>q.type==='order_delete').map(q=>String(q.orderId)));for(const order of orders)if(!deleted.has(String(order.id)))await putOrder(order);}
 export async function cacheClients(clients:Client[]){const {accountId,userId}=await activeIdentity(),queue=await getQueue(),deleted=new Set(queue.filter(q=>q.type==='client_delete').map(q=>String(q.clientId))),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite'),s=tx.objectStore(CLIENTS),existingReq=s.getAll();existingReq.onsuccess=()=>{for(const existing of existingReq.result||[])if(Number(existing.accountId)===accountId)s.delete(existing.id);for(const c of clients)if(!deleted.has(String(c.id)))s.put({id:`${accountId}:${c.id}`,accountId,value:c});};await txDone(tx);}
-export async function putClient(client:Client){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).put({id:`${accountId}:${client.id}`,accountId,value:client});await txDone(tx);}
+export async function putClient(client:Client){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).put({id:`${accountId}:${userId}:${client.id}`,accountId,userId,value:client});await txDone(tx);}
 export async function removeCachedClient(id:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(CLIENTS,'readwrite');tx.objectStore(CLIENTS).delete(`${accountId}:${id}`);await txDone(tx);}
 export async function queueClientCreate(client:Client){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_create:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_create',orderId:'',clientId:client.id,client,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${client.id}`,accountId,value:client});await txDone(tx);}
 export async function queueClientUpdate(client:Client){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_update:${client.id}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_update',orderId:'',clientId:client.id,client,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).put({id:`${accountId}:${client.id}`,accountId,value:client});await txDone(tx);}
-export async function queueClientDelete(clientId:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_delete:${clientId}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_delete',orderId:'',clientId,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).delete(`${accountId}:${clientId}`);await txDone(tx);}
+export async function queueClientDelete(clientId:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,CLIENTS],'readwrite');const scopedId=`${accountId}:client_delete:${clientId}`;tx.objectStore(QUEUE).put({id:scopedId,type:'client_delete',orderId:'',clientId,accountId,userId,createdAt:now,updatedAt:now,attempts:0});tx.objectStore(CLIENTS).delete(`${accountId}:${userId}:${clientId}`);await txDone(tx);}
 export async function cacheTeam(team:TeamMember[]){const {accountId}=await activeIdentity(),db=await openDb(),tx=db.transaction(META,'readwrite');tx.objectStore(META).put({key:`team:${accountId}`,value:team});await txDone(tx);}
 export async function getCachedTeam():Promise<TeamMember[]>{try{const {accountId,userId}=await activeIdentity(),db=await openDb();return new Promise((resolve)=>{const tx=db.transaction(META,'readonly'),req=tx.objectStore(META).get(`team:${accountId}`);tx.oncomplete=()=>resolve(Array.isArray(req.result?.value)?req.result.value:[]);tx.onerror=()=>resolve([]);});}catch{return[];}}
-export async function updateCachedPhoto(orderId:string,attendanceId:string,photoId:string,uploadedKey:string,uploadedUrl:string){try{const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite'),s=tx.objectStore(ORDERS),req=s.get(`${accountId}:${orderId}`);req.onsuccess=()=>{const row=req.result;if(row&&row.value){const o=row.value as ServiceOrder;const nextAtts=(o.attendances||[]).map(a=>{if(a.id!==attendanceId)return a;return{...a,photos:(a.photos||[]).map(p=>p.id===photoId?{...p,key:uploadedKey,dataUrl:uploadedUrl}:p)};});s.put({...row,value:{...o,attendances:nextAtts}});}};await txDone(tx);}catch(e){console.warn('Não foi possível atualizar foto no cache offline:',e);}}
+export async function updateCachedPhoto(orderId:string,attendanceId:string,photoId:string,uploadedKey:string,uploadedUrl:string){try{const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite'),s=tx.objectStore(ORDERS),req=s.get(`${accountId}:${userId}:${orderId}`);req.onsuccess=()=>{const row=req.result;if(row&&row.value){const o=row.value as ServiceOrder;const nextAtts=(o.attendances||[]).map(a=>{if(a.id!==attendanceId)return a;return{...a,photos:(a.photos||[]).map(p=>p.id===photoId?{...p,key:uploadedKey,dataUrl:uploadedUrl}:p)};});s.put({...row,value:{...o,attendances:nextAtts}});}};await txDone(tx);}catch(e){console.warn('Não foi possível atualizar foto no cache offline:',e);}}
 async function enqueue(item:Omit<QueueItem,'accountId'|'userId'>,order:ServiceOrder){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite');const scopedId=`${accountId}:${item.id}`;tx.objectStore(QUEUE).put({...item,id:scopedId,accountId,userId});tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});await txDone(tx);}
 export async function queueOrderCreate(order:ServiceOrder){const now=Date.now();await enqueue({id:`create:${order.id}`,type:'order_create',orderId:order.id,order,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueOrderUpdate(order:ServiceOrder){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction(QUEUE,'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:order:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'order_update',orderId:order.id,order,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});};await txDone(tx);}
@@ -267,7 +267,7 @@ export async function queueOrderDelete(orderId:string,fallbackOrder?:ServiceOrde
   };
   await txDone(tx);
 }
-export async function removeCachedOrder(id:string){const accountId=await activeAccountId(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).delete(`${accountId}:${id}`);await txDone(tx);}
+export async function removeCachedOrder(id:string){const {accountId,userId}=await activeIdentity(),db=await openDb(),tx=db.transaction(ORDERS,'readwrite');tx.objectStore(ORDERS).delete(`${accountId}:${userId}:${id}`);await txDone(tx);}
 export async function queueAttendancePhoto(order:ServiceOrder,attendanceId:string,photoId:string,file:Blob,fileName:string){const now=Date.now();await enqueue({id:`photo:${order.id}:${photoId}`,type:'attendance_photo',orderId:order.id,attendanceId,photoId,order,file,fileName,createdAt:now,updatedAt:now,attempts:0},order);}
 export async function queueSignatureUpload(order:ServiceOrder,file:Blob,fileName:string){const {accountId,userId}=await activeIdentity(),now=Date.now(),db=await openDb(),tx=db.transaction([QUEUE,ORDERS],'readwrite'),s=tx.objectStore(QUEUE),scopedId=`${accountId}:signature:${order.id}`,existingReq=s.get(scopedId);existingReq.onsuccess=()=>{const existing=existingReq.result as QueueItem|undefined;const baseVersion=Number.isFinite(existing?.baseVersion)?existing?.baseVersion:Number.isFinite(order.syncVersion)?order.syncVersion:undefined;s.put({id:scopedId,type:'signature_upload',orderId:order.id,order,file,fileName,accountId,userId,baseVersion,createdAt:existing?.createdAt??now,updatedAt:now,attempts:existing?.attempts??0});tx.objectStore(ORDERS).put({id:`${accountId}:${order.id}`,accountId,value:order});};await txDone(tx);}
 function normalizeQueueItem(raw:any):QueueItem{
@@ -320,7 +320,7 @@ export async function getQueue():Promise<QueueItem[]>{
     tx.onabort=()=>reject(tx.error||new Error('Leitura da fila offline foi cancelada.'));
   });
   const rows=(rawRows[0]||[]).filter((x:any)=>Number(x.accountId)===accountId&&Number(x.userId)===userId);
-  const orders=(rawRows[1]||[]).filter((x:any)=>Number(x.accountId)===accountId).map((x:any)=>x.value||x) as ServiceOrder[];
+  const orders=(rawRows[1]||[]).filter((x:any)=>Number(x.accountId)===accountId&&Number(x.userId)===userId).map((x:any)=>x.value||x) as ServiceOrder[];
   const normalizedRows=rows.map((raw:any)=>{
     const normalized=normalizeQueueItem(raw);
     if(normalized.type==='attendance_photo'&&!normalized.orderId){
