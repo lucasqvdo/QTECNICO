@@ -94,7 +94,7 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
     req.onsuccess=()=>{for(const item of req.result||[]){
       // Only migrate legacy rows whose previous user identity is known and matches.
       // Unattributed legacy rows stay quarantined instead of being assigned to a new account.
-      if((item.accountId==null&&item.legacyUserId!=null&&Number(item.legacyUserId)===userId)||(Number(item.accountId)===accountId&&(!item.userId||Number(item.userId)===userId))){
+      if(item.accountId==null&&item.legacyUserId!=null&&Number(item.legacyUserId)===userId){
         const migrated={...item,accountId,legacyUserId:undefined,userId,id:item.id};
         store.put(migrated);
         // Keep the legacy key only when it is already the scoped key; otherwise
