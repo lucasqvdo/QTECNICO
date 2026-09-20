@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { CalendarClock, Check, Clock3, Edit3, FileText, ImagePlus, Plus, Trash2, X } from 'lucide-react';
 import { api } from './api';
-import { exportPDF } from './exportPDF';
+import { exportClientPDF, exportAdminPDF } from './exportPDF';
 import type { Attendance, ServiceOrder } from './types';
 
 type Props = {
@@ -198,7 +198,7 @@ export default function AttendanceManagement({ orders, onOrdersChange, onBack }:
     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div><button onClick={onBack} className="mb-2 text-sm font-semibold text-cyan-600">← Dashboard</button><h1 className="text-3xl font-bold tracking-tight">Atendimentos</h1><p className="mt-1 text-sm text-slate-500">Registre, edite e complemente os atendimentos da OS.</p></div>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => order && exportPDF(order)} disabled={!order || saving} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"><FileText size={17} /> Gerar PDF</button>
+        <button onClick={() => order && void exportClientPDF(order)} disabled={!order || saving} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-200 bg-white px-4 py-3 text-sm font-semibold text-cyan-700 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"><FileText size={17} /> PDF cliente</button><button onClick={() => order && void exportAdminPDF(order)} disabled={!order || saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><FileText size={17} /> PDF administrativo</button>
         <button onClick={newAttendance} disabled={!order || saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"><Plus size={17} /> Novo atendimento</button>
       </div>
     </div>
