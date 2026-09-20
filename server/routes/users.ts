@@ -36,6 +36,20 @@ router.get('/me', requireAuth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
 });
 
+router.get('/company-profile', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT account_id FROM users WHERE id = $1', [req.userId]);
+    const accountId = result.rows[0]?.account_id as number | undefined;
+    if (!accountId) return res.json(null);
+    const profile = await getCompanyProfile(accountId);
+    if (!profile) return res.json(null);
+    res.json({ ...profile, logoUrl: await getDownloadUrl(profile.logoKey || null) });
+  } catch (error) {
+    console.error('Erro ao carregar perfil da empresa para documento:', error);
+    res.status(500).json({ error: 'Erro ao carregar perfil da empresa' });
+  }
+});
+
 router.get('/admin/access', requireAdmin, async (_req, res) => res.json({ allowed: true }));
 
 router.get('/admin/company-profile', requireAdmin, async (req, res) => {
