@@ -193,7 +193,7 @@ ${expenseRows || '<tr><td colspan="2" class="muted">Nenhuma despesa lançada.</t
 <tr><td>Margem após custos</td><td class="money" style="color:${margem >= 0 ? "#15803D" : "#B91C1C"}">${fmt(margem)}</td></tr>
 </tbody></table></div>
 ${paymentRows ? `<h2>Parcelas e recebimentos</h2><table><thead><tr><th>Pagamento</th><th>Data</th><th>Status</th><th style="text-align:right">Valor</th></tr></thead><tbody>${paymentRows}</tbody></table>` : `<div class="muted" style="margin-top:8px">Nenhum lançamento de pagamento detalhado. Status atual: ${esc(order.paymentStatus === "paid" ? "Pago" : "Pendente")}.</div>`}
-`}
+` : ""}
 
 
 <h2>Registros de Atendimento (${order.attendances.length})</h2>
