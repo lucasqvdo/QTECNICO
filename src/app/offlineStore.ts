@@ -43,7 +43,7 @@ function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{
     if(!db.objectStoreNames.contains(CLIENTS))db.createObjectStore(CLIENTS,{keyPath:'id'});
     if(!db.objectStoreNames.contains(META))db.createObjectStore(META,{keyPath:'key'});
     if(!db.objectStoreNames.contains(QUEUE))db.createObjectStore(QUEUE,{keyPath:'id'});
-    if(request.transaction && db.version===4){
+    if(request.transaction && db.version===5){
       const tx=request.transaction, meta=tx.objectStore(META);
       const legacyUserReq=meta.get('user');
       legacyUserReq.onsuccess=()=>{
