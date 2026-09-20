@@ -46,7 +46,13 @@ export async function exportPDF(order: ServiceOrder, client?: Client, techName =
     ? payments.filter((payment) => payment.status === "pending").reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
     : Math.max(0, Number(order.clientValue || 0) - paid);
   const isAdminPdf = mode === "admin";
-  const hasFinancialData = isAdminPdf && (totalExpenses > 0 || Number(order.clientValue || 0) > 0 || payments.length > 0);
+  const clientValue = Number(order.clientValue || 0);
+  const expenseCount = order.expenses.length;
+  const paidDate = order.paidDate ? new Date(order.paidDate).toLocaleDateString("pt-BR") : "";
+  const totalAttendanceSeconds = order.attendances.reduce((sum, att) => sum + Number(att.durationSeconds || 0), 0);
+  const marginPct = clientValue > 0 ? (margem / clientValue) * 100 : 0;
+  const costPct = clientValue > 0 ? (totalExpenses / clientValue) * 100 : 0;
+  const hasFinancialData = isAdminPdf && (totalExpenses > 0 || clientValue > 0 || payments.length > 0 || order.paymentStatus);
 
   const logoUrl = safeUrl(company?.logoUrl || company?.logoKey);
   const companyName = company?.tradeName || company?.legalName || "QTECNICO";
@@ -113,6 +119,12 @@ th{text-align:left;background:#f1f5f9;color:#475569;font-size:9px;text-transform
 td{vertical-align:top;padding:6px;border-bottom:1px solid #edf1f5}
 .money{text-align:right;font-weight:700}
 .total td{border-top:2px solid #cbd5e1;font-weight:800}
+.admin-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.admin-kpi{border:1px solid #dbe3ec;border-radius:7px;padding:9px;background:#f8fafc}
+.admin-kpi .kpi-label{font-size:8px;text-transform:uppercase;letter-spacing:.06em;color:#64748B;font-weight:700}
+.admin-kpi .kpi-value{font-size:15px;font-weight:800;color:#1A2B4A;margin-top:3px}
+.admin-kpi .kpi-note{font-size:8px;color:#64748B;margin-top:2px}
+.admin-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .attendance{border:1px solid #dbe3ec;border-radius:7px;padding:11px;margin-bottom:9px;break-inside:avoid}
 .attendance-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:6px;color:#1A2B4A}
 .duration{background:#DBEAFE;color:#1D4ED8;padding:3px 8px;border-radius:999px;font-size:9px;font-weight:700}
@@ -162,11 +174,26 @@ td{vertical-align:top;padding:6px;border-bottom:1px solid #edf1f5}
 </div>
 
 ${hasFinancialData ? `
-<h2>Resumo Financeiro</h2>
-<div class="card">
-  <table>
-    ${expenseRows}
-    ${totalExpenses ? `<tr class="total"><td>Total de custos</td><td class="money">${fmt(totalExpenses)}</td></tr>` : ""}
+<h2>Resumo Financeiro e Administrativo</h2>
+<div class="admin-summary">
+<div class="admin-kpi"><div class="kpi-label">Valor da OS</div><div class="kpi-value">${fmt(clientValue)}</div><div class="kpi-note">Valor cobrado do cliente</div></div>
+<div class="admin-kpi"><div class="kpi-label">Custos / despesas</div><div class="kpi-value">${fmt(totalExpenses)}</div><div class="kpi-note">${expenseCount} lançamento(s) · ${costPct.toFixed(1)}% do valor</div></div>
+<div class="admin-kpi"><div class="kpi-label">Margem bruta</div><div class="kpi-value" style="color:${margem >= 0 ? "#15803D" : "#B91C1C"}">${fmt(margem)}</div><div class="kpi-note">${marginPct.toFixed(1)}% do valor da OS</div></div>
+<div class="admin-kpi"><div class="kpi-label">Saldo a receber</div><div class="kpi-value">${fmt(pending)}</div><div class="kpi-note">Recebido: ${fmt(paid)}</div></div>
+</div>
+<div class="admin-meta">
+<div class="card"><div class="label">Status financeiro</div><div class="value"><strong>${esc(order.paymentStatus === "paid" ? "Pago" : "Pendente")}</strong>${paidDate ? `<div class="muted">Último pagamento: ${esc(paidDate)}</div>` : ""}</div></div>
+<div class="card"><div class="label">Operação</div><div class="value"><strong>${esc(order.priority === "high" ? "Alta" : order.priority === "medium" ? "Média" : "Baixa")}</strong><div class="muted">Prioridade da OS · ${order.attendances.length} atendimento(s)</div></div></div>
+<div class="card"><div class="label">Equipe responsável</div><div class="value"><strong>${esc(order.assignedTechnicians?.map(t => t.name).join(", ") || order.assignedTechnicianName || techName)}</strong><div class="muted">${esc(totalAttendanceSeconds ? `Tempo total: ${fmtDuration(totalAttendanceSeconds)}` : "Tempo de atendimento não registrado")}</div></div></div>
+</div>
+<div class="card" style="margin-top:8px"><table><thead><tr><th>Despesa / custo</th><th style="text-align:right">Valor</th></tr></thead><tbody>
+${expenseRows || '<tr><td colspan="2" class="muted">Nenhuma despesa lançada.</td></tr>'}
+<tr class="total"><td>Total de custos</td><td class="money">${fmt(totalExpenses)}</td></tr>
+<tr><td>Valor do cliente</td><td class="money">${fmt(clientValue)}</td></tr>
+<tr><td>Margem após custos</td><td class="money" style="color:${margem >= 0 ? "#15803D" : "#B91C1C"}">${fmt(margem)}</td></tr>
+</tbody></table></div>
+${paymentRows ? `<h2>Parcelas e recebimentos</h2><table><thead><tr><th>Pagamento</th><th>Data</th><th>Status</th><th style="text-align:right">Valor</th></tr></thead><tbody>${paymentRows}</tbody></table>` : `<div class="muted" style="margin-top:8px">Nenhum lançamento de pagamento detalhado. Status atual: ${esc(order.paymentStatus === "paid" ? "Pago" : "Pendente")}.</div>`}
+`}
     ${order.clientValue ? `<tr><td>Valor do cliente</td><td class="money">${fmt(order.clientValue)}</td></tr>` : ""}
     ${order.clientValue ? `<tr><td>Margem</td><td class="money" style="color:${margem >= 0 ? "#15803D" : "#B91C1C"}">${fmt(margem)}</td></tr>` : ""}
     ${payments.length ? `<tr><td>Recebido</td><td class="money">${fmt(paid)}</td></tr><tr><td>Saldo pendente</td><td class="money">${fmt(pending)}</td></tr>` : ""}
