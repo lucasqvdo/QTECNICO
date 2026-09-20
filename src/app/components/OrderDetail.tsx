@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Download, MapPin, Phone, Calendar, Plus, Trash2, Play, Square, CheckCircle2, Image, X, PenLine } from "lucide-react";
+import { ArrowLeft, Download, FileText, MapPin, Phone, Calendar, Plus, Trash2, Play, Square, CheckCircle2, Image, X, PenLine } from "lucide-react";
 import { STATUS_CONFIG, PRIORITY_CONFIG, fmt, fmtDuration, fmtDateTime } from "../config";
 import { InfoRow, ActionBtn, FinCard } from "./ui/SharedComponents";
-import { exportPDF } from "../exportPDF";
+import { exportClientPDF, exportAdminPDF } from "../exportPDF";
 import { api } from "../api";
 import type { ServiceOrder, Client, Attendance, AttendancePhoto, Payment } from "../types";
 
@@ -333,7 +333,10 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><ArrowLeft size={18} /></button>
           <div className="flex-1 min-w-0"><p className="font-mono text-xs text-primary-foreground/60">{order.id}</p><h2 className="font-semibold text-base truncate">{order.type}</h2></div>
-          <button onClick={() => exportPDF(order, client, techName)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors"><Download size={14} /> PDF</button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => void exportClientPDF(order, client, techName)} className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors" title="PDF para enviar ao cliente"><Download size={14} /> Cliente</button>
+            <button onClick={() => void exportAdminPDF(order, client, techName)} className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 transition-colors" title="PDF administrativo com informações financeiras"><FileText size={14} /> Administrativo</button>
+          </div>
         </div>
       </div>
 
