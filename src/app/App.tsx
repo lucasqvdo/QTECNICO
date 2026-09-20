@@ -14,6 +14,7 @@ import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import logoImg from "@/imports/ChatGPT_Image_8_de_jun._de_2026__11_15_09.png";
 import { Screen, OrderStatus, ServiceOrder, Client, Attendance, AttendancePhoto, PaymentStatus, Payment } from "./types";
+import { clearOfflineIdentity } from "./offlineStore";
 import { api } from "./api";
 import SecureLoginScreen from "./components/SecureLoginScreen";
 
@@ -217,6 +218,7 @@ export default function App() {
 
   useEffect(() => {
     const handleSessionExpired = () => {
+      void clearOfflineIdentity();
       setOrders([]);
       setClients([]);
       setScreen("login");
@@ -320,6 +322,7 @@ export default function App() {
     try {
       await api.logout();
     } finally {
+      await clearOfflineIdentity();
       setOrders([]); setClients([]);
       setScreen("login");
     }
