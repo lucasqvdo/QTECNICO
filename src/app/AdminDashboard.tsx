@@ -6,7 +6,6 @@ import { api } from './api';
 import TeamManagement from './TeamManagement';
 import ClientsManagement from './ClientsManagement';
 import OrdersManagement from './OrdersManagement';
-import AttendanceManagement from './AttendanceManagement';
 import AgendaManagement from './AgendaManagement';
 import FinanceManagement from './FinanceManagement';
 import CompanyProfile from './CompanyProfile';
@@ -19,12 +18,11 @@ const STATUS: Record<OrderStatus, { label: string; className: string }> = {
   cancelled: { label: 'Cancelada', className: 'bg-red-100 text-red-700' },
 };
 const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-type Section = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company';
+type Section = 'dashboard' | 'clients' | 'team' | 'orders' | 'agenda' | 'finance' | 'company';
 type NavItem = { key: Section; icon: typeof BarChart3; label: string };
 const NAV: NavItem[] = [
   { key: 'dashboard', icon: BarChart3, label: 'Dashboard' },
   { key: 'orders', icon: ClipboardList, label: 'Ordens de Serviço' },
-  { key: 'attendances', icon: Clock3, label: 'Atendimentos' },
   { key: 'clients', icon: Users, label: 'Clientes' },
   { key: 'team', icon: Wrench, label: 'Técnicos / Equipe' },
   { key: 'agenda', icon: CalendarDays, label: 'Agenda' },
@@ -97,7 +95,6 @@ export default function AdminDashboard() {
   if (section === 'team') return <Layout><TeamManagement onBack={() => select('dashboard')} /></Layout>;
   if (section === 'clients') return <Layout><ClientsManagement clients={clients} orders={orders} onClientsChange={setClients} onBack={() => select('dashboard')} /></Layout>;
   if (section === 'orders') return <Layout><OrdersManagement orders={orders} clients={clients} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
-  if (section === 'attendances') return <Layout><AttendanceManagement orders={orders} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
   if (section === 'agenda') return <Layout><AgendaManagement orders={orders} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
   if (section === 'finance') return <Layout><FinanceManagement orders={orders} onOrdersChange={setOrders} onBack={() => select('dashboard')} /></Layout>;
 
