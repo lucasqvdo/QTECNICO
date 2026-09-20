@@ -71,7 +71,7 @@ async function activeIdentity():Promise<{accountId:number;userId:number}>{
     tx.oncomplete=()=>{
       const raw=req.result?.value?.accountId;
       const id=raw!=null?Number(raw):NaN;
-      const userId=Number(u.result?.value?.id);
+      const userId=Number(req.result?.value?.id);
       if(Number.isInteger(id)&&id>0&&Number.isInteger(userId)&&userId>0)resolve({accountId:id,userId});
       else reject(new Error('Conta ou usuário offline não identificado. Faça login novamente para inicializar o armazenamento local.'));
     };
