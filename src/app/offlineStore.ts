@@ -120,7 +120,7 @@ export async function getOfflineSnapshot():Promise<OfflineSnapshot>{
       const accountId=rawAccountId!=null?Number(rawAccountId):null;
       const scoped=(rows:any[])=>{
         if(Number.isInteger(accountId)&&(accountId as number)>0){
-          return rows.filter(x=>Number(x.accountId)===Number(accountId)&&Number(x.userId)===Number(req.result?.value?.id));
+          return rows.filter(x=>Number(x.accountId)===Number(accountId)&&Number(x.userId)===Number(u.result?.value?.id));
         }
         return [];
       };
