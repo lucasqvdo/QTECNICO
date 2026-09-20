@@ -18,19 +18,19 @@ function isSafeStorageKey(key: unknown, accountId: number, folder: string) {
   return key.startsWith(`${folder}/${accountId}/`);
 }
 
-async function buildOrder(orderId: string, accountId: number) {
-  const orderRes = await pool.query('SELECT * FROM orders WHERE id=$1 AND account_id=$2', [orderId, accountId]);
+async function buildOrder(orderId: string, accountId: number, executor: { query: (text: string, params?: any[]) => Promise<any> } = pool) {
+  const orderRes = await executor.query('SELECT * FROM orders WHERE id=$1 AND account_id=$2', [orderId, accountId]);
   const o = orderRes.rows[0];
   if (!o) return null;
-  const attRes = await pool.query('SELECT * FROM attendances WHERE order_id=$1 AND account_id=$2 ORDER BY start_time ASC', [orderId, accountId]);
+  const attRes = await executor.query('SELECT * FROM attendances WHERE order_id=$1 AND account_id=$2 ORDER BY start_time ASC', [orderId, accountId]);
   const attIds = attRes.rows.map((a: any) => a.id);
-  const photoRes = attIds.length ? await pool.query('SELECT * FROM attendance_photos WHERE account_id=$1 AND attendance_id=ANY($2)', [accountId, attIds]) : { rows: [] as any[] };
+  const photoRes = attIds.length ? await executor.query('SELECT * FROM attendance_photos WHERE account_id=$1 AND attendance_id=ANY($2)', [accountId, attIds]) : { rows: [] as any[] };
   const photosByAtt: Record<string, any[]> = {};
   for (const p of photoRes.rows) {
     (photosByAtt[p.attendance_id] ||= []).push({ id: p.id, key: p.data_url, dataUrl: await getDownloadUrl(p.data_url), name: p.name });
   }
   const ids = Array.isArray(o.assigned_technician_ids) && o.assigned_technician_ids.length ? o.assigned_technician_ids : o.assigned_technician_id ? [o.assigned_technician_id] : [];
-  const techRes = ids.length ? await pool.query('SELECT id,name FROM users WHERE account_id=$1 AND id=ANY($2)', [accountId, ids]) : { rows: [] as any[] };
+  const techRes = ids.length ? await executor.query('SELECT id,name FROM users WHERE account_id=$1 AND id=ANY($2)', [accountId, ids]) : { rows: [] as any[] };
   const techMap = new Map(techRes.rows.map((t: any) => [Number(t.id), t.name]));
   const assignedTechnicians = ids.map((id: number) => ({ id: Number(id), name: techMap.get(Number(id)) || 'Técnico' }));
   return { id: o.id, clientId: o.client_id, client: o.client_name, address: o.address, phone: o.phone, type: o.type, status: o.status, date: o.date instanceof Date ? o.date.toISOString().split('T')[0] : String(o.date || '').split('T')[0], priority: o.priority, description: o.description, clientSignature: (await getDownloadUrl(o.client_signature)) ?? undefined, clientSignatureKey: o.client_signature ?? undefined, syncVersion: Number(o.sync_version ?? 1), assignedTechnicianId: ids[0] ?? undefined, assignedTechnicianName: assignedTechnicians[0]?.name ?? undefined, assignedTechnicianIds: ids, assignedTechnicians, attendances: attRes.rows.map((a: any) => ({ id: a.id, startTime: a.start_time instanceof Date ? a.start_time.toISOString() : a.start_time, endTime: a.end_time instanceof Date ? a.end_time.toISOString() : a.end_time, durationSeconds: a.duration_seconds, description: a.description, photos: photosByAtt[a.id] || [] })) };
@@ -64,7 +64,7 @@ router.put('/:id/sync', requireAuth, async (req, res) => {
 
     const currentVersion = Number(existing.sync_version ?? 1);
     if (Number.isFinite(baseVersion) && baseVersion !== currentVersion) {
-      const conflict = { error: 'Conflito de versão', code: 'SYNC_CONFLICT', operationId, currentVersion, serverOrder: await buildOrder(id, accountId) };
+      const conflict = { error: 'Conflito de versão', code: 'SYNC_CONFLICT', operationId, currentVersion, serverOrder: await buildOrder(id, accountId, db) };
       if (operationId) await db.query(`UPDATE sync_operations SET status='conflict',response_status=409,response_body=$1::jsonb,processed_at=now() WHERE operation_id=$2 AND account_id=$3`, [JSON.stringify(conflict), operationId, accountId]);
       await db.query('COMMIT');
       return res.status(409).json(conflict);
@@ -92,11 +92,14 @@ router.put('/:id/sync', requireAuth, async (req, res) => {
     }
 
     await db.query('UPDATE orders SET status=$1,description=$2,client_signature=$3,sync_version=sync_version+1 WHERE id=$4 AND account_id=$5', [status, description, signatureKey, id, accountId]);
-    await db.query('COMMIT');
 
-    const result = await buildOrder(id, accountId);
-    if (!result) return res.status(404).json({ error: 'Ordem não encontrada após sincronização' });
-    if (operationId) await pool.query(`UPDATE sync_operations SET status='completed',response_status=200,response_body=$1::jsonb,processed_at=now() WHERE operation_id=$2 AND account_id=$3`, [JSON.stringify(result), operationId, accountId]);
+    // Complete the idempotency record inside the same transaction as the business mutation.
+    // This removes the crash window where the order was committed but the operation stayed "processing".
+    const result = await buildOrder(id, accountId, db);
+    if (!result) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'Ordem não encontrada após sincronização' }); }
+    if (operationId) await db.query(`UPDATE sync_operations SET status='completed',response_status=200,response_body=$1::jsonb,processed_at=now() WHERE operation_id=$2 AND account_id=$3`, [JSON.stringify(result), operationId, accountId]);
+
+    await db.query('COMMIT');
     return res.json(result);
   } catch (e: any) {
     try { await db.query('ROLLBACK'); } catch {}
