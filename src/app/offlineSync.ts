@@ -82,7 +82,7 @@ async function syncOrder(item: QueueItem) {
   const snapshot = await getOfflineSnapshot();
   const currentOrder = (item.orderId ? snapshot.orders.find(o => o.id === item.orderId) : null) || item.order;
   if (!currentOrder) return;
-  const saved = await api.updateOrderOnline(item.orderId, { ...currentOrder, baseVersion: item.baseVersion });
+  const saved = await api.syncOrderOnline(item.orderId, { ...currentOrder }, item.id, item.baseVersion);
   await cacheOrders([saved]);
 }
 
@@ -124,12 +124,14 @@ async function syncSignature(item: QueueItem) {
     uploaded = await api.uploadPhoto(file, 'signatures');
     await updateQueueUpload(item.id, uploaded.key, uploaded.url);
   }
-  const saved = await api.updateOrderOnline(item.orderId, {
+  const snapshot = await getOfflineSnapshot();
+  const latestOrder = snapshot.orders.find(o => String(o.id) === String(item.orderId));
+  const baseVersion = Number.isFinite(latestOrder?.syncVersion) ? latestOrder?.syncVersion : item.baseVersion;
+  const saved = await api.syncOrderOnline(item.orderId, {
     clientSignature: uploaded.url,
     clientSignatureKey: uploaded.key,
-    status: 'completed',
-    baseVersion: item.baseVersion
-  });
+    status: 'completed'
+  }, item.id, baseVersion);
   await cacheOrders([saved]);
 }
 
@@ -316,38 +318,7 @@ export async function syncOfflineQueue(): Promise<void> {
       }
     }
 
-    // 4. Process Signatures
-    const signatureItems = recoverableQueue.filter(i => i.type === 'signature_upload');
-    for (const item of signatureItems) {
-      if (!navigator.onLine) break;
-      if (item.orderId && orderDeleteIds.has(item.orderId)) {
-        await removeQueueItem(item.id);
-        continue;
-      }
-      try {
-        await markQueueAttempt(item.id);
-        await syncSignature(item);
-        await removeQueueItem(item.id);
-        didSync = true;
-      } catch (error) {
-        if (isNetworkError(error)) {
-          running = false;
-          state = 'error';
-          emit();
-          return;
-        }
-        hadError = true;
-        const msg = error instanceof Error ? error.message : 'Falha ao sincronizar assinatura';
-        if (Number((error as any)?.status) === 409) {
-          await markQueueManualRecovery(item.id, `Conflito de sincronização da assinatura: a OS foi alterada no servidor antes desta assinatura offline. ${msg}`);
-        } else {
-          await updateQueueFailure(item.id, msg);
-          if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
-        }
-      }
-    }
-
-    // 5. Process Order Updates
+    // 4. Process Order Updates
     const orderItems = recoverableQueue.filter(i => i.type === 'order_update');
     const latestByOrder = new Map<string, QueueItem>();
     for (const item of orderItems) {
@@ -455,3 +426,34 @@ export function startOfflineSync() {
   window.setInterval(kick, 5000);
   kick();
 }
+    // 5. Process Signatures
+    const signatureItems = recoverableQueue.filter(i => i.type === 'signature_upload');
+    for (const item of signatureItems) {
+      if (!navigator.onLine) break;
+      if (item.orderId && orderDeleteIds.has(item.orderId)) {
+        await removeQueueItem(item.id);
+        continue;
+      }
+      try {
+        await markQueueAttempt(item.id);
+        await syncSignature(item);
+        await removeQueueItem(item.id);
+        didSync = true;
+      } catch (error) {
+        if (isNetworkError(error)) {
+          running = false;
+          state = 'error';
+          emit();
+          return;
+        }
+        hadError = true;
+        const msg = error instanceof Error ? error.message : 'Falha ao sincronizar assinatura';
+        if (Number((error as any)?.status) === 409) {
+          await markQueueManualRecovery(item.id, `Conflito de sincronização da assinatura: a OS foi alterada no servidor antes desta assinatura offline. ${msg}`);
+        } else {
+          await updateQueueFailure(item.id, msg);
+          if (item.attempts >= 2) await markQueueManualRecovery(item.id, msg);
+        }
+      }
+    }
+
