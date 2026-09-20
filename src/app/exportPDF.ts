@@ -23,17 +23,6 @@ const companyAddress = (company?: CompanyProfileData | null) =>
     ? ` — ${[company?.city, company?.state].filter(Boolean).join("/")}${company?.postalCode ? ` · CEP ${company.postalCode}` : ""}`
     : "");
 
-const waitForImages = async (doc: Document) => {
-  const images = Array.from(doc.images);
-  await Promise.all(images.map((img) => img.complete
-    ? Promise.resolve()
-    : new Promise<void>((resolve) => {
-        const done = () => { img.removeEventListener("load", done); img.removeEventListener("error", done); resolve(); };
-        img.addEventListener("load", done);
-        img.addEventListener("error", done);
-      })));
-};
-
 export async function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") {
   const win = window.open("", "_blank");
   if (!win) {
