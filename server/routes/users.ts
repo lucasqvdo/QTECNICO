@@ -43,7 +43,8 @@ router.get('/company-profile', requireAuth, async (req, res) => {
     if (!accountId) return res.json(null);
     const profile = await getCompanyProfile(accountId);
     if (!profile) return res.json(null);
-    res.json({ ...profile, logoUrl: await getDownloadUrl(profile.logoKey || null) });
+    const { logoKey, ...publicProfile } = profile;
+    res.json({ ...publicProfile, logoUrl: await getDownloadUrl(logoKey || null) });
   } catch (error) {
     console.error('Erro ao carregar perfil da empresa para documento:', error);
     res.status(500).json({ error: 'Erro ao carregar perfil da empresa' });
