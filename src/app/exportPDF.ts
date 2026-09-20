@@ -116,14 +116,14 @@ td{vertical-align:top;padding:6px;border-bottom:1px solid #edf1f5}
 .attendance{border:1px solid #dbe3ec;border-radius:7px;padding:11px;margin-bottom:9px;break-inside:avoid}
 .attendance-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:6px;color:#1A2B4A}
 .duration{background:#DBEAFE;color:#1D4ED8;padding:3px 8px;border-radius:999px;font-size:9px;font-weight:700}
-.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
-.photo{width:100%;height:120px;object-fit:cover;border-radius:5px;border:1px solid #e2e8f0}
+.photos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:8px;align-items:start}
+.photo{width:100%;height:auto;max-height:240px;object-fit:contain;display:block;border-radius:5px;border:1px solid #e2e8f0;background:#f8fafc}
 .signature{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:24px;break-inside:avoid}
 .signature-box{min-height:105px;border-bottom:1px solid #475569;position:relative;padding-top:8px}
 .signature-img{max-width:100%;height:75px;object-fit:contain;display:block;margin:0 auto}
 .footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:9px;color:#94A3B8;text-align:center}
 @media print{.no-print{display:none!important}.attendance,.card,.signature{break-inside:avoid}.photo{break-inside:avoid}}
-@media(max-width:700px){body{padding:12px}.grid2{grid-template-columns:1fr}.photos{grid-template-columns:repeat(2,1fr)}.header{flex-direction:column}.os{text-align:left}}
+@media(max-width:700px){body{padding:12px}.grid2{grid-template-columns:1fr}.photos{grid-template-columns:1fr}.photo{max-height:none}.header{flex-direction:column}.os{text-align:left}}
 </style>
 </head>
 <body>
