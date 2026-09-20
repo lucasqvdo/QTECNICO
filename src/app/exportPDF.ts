@@ -194,13 +194,7 @@ ${expenseRows || '<tr><td colspan="2" class="muted">Nenhuma despesa lançada.</t
 </tbody></table></div>
 ${paymentRows ? `<h2>Parcelas e recebimentos</h2><table><thead><tr><th>Pagamento</th><th>Data</th><th>Status</th><th style="text-align:right">Valor</th></tr></thead><tbody>${paymentRows}</tbody></table>` : `<div class="muted" style="margin-top:8px">Nenhum lançamento de pagamento detalhado. Status atual: ${esc(order.paymentStatus === "paid" ? "Pago" : "Pendente")}.</div>`}
 `}
-    ${order.clientValue ? `<tr><td>Valor do cliente</td><td class="money">${fmt(order.clientValue)}</td></tr>` : ""}
-    ${order.clientValue ? `<tr><td>Margem</td><td class="money" style="color:${margem >= 0 ? "#15803D" : "#B91C1C"}">${fmt(margem)}</td></tr>` : ""}
-    ${payments.length ? `<tr><td>Recebido</td><td class="money">${fmt(paid)}</td></tr><tr><td>Saldo pendente</td><td class="money">${fmt(pending)}</td></tr>` : ""}
-  </table>
-</div>
-${paymentRows ? `<table style="margin-top:8px"><thead><tr><th>Pagamento</th><th>Data</th><th>Status</th><th style="text-align:right">Valor</th></tr></thead><tbody>${paymentRows}</tbody></table>` : ""}
-` : ""}
+
 
 <h2>Registros de Atendimento (${order.attendances.length})</h2>
 ${order.attendances.length ? attendanceRows : '<p class="muted">Nenhum atendimento registrado.</p>'}
