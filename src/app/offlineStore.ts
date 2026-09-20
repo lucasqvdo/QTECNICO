@@ -71,7 +71,7 @@ async function activeIdentity():Promise<{accountId:number;userId:number}>{
     tx.oncomplete=()=>{
       const raw=req.result?.value?.accountId;
       const id=raw!=null?Number(raw):NaN;
-      const userId=Number(req.result?.value?.id);
+      const userId=Number(u.result?.value?.id);
       if(Number.isInteger(id)&&id>0&&Number.isInteger(userId)&&userId>0)resolve({accountId:id,userId});
       else reject(new Error('Conta ou usuário offline não identificado. Faça login novamente para inicializar o armazenamento local.'));
     };
@@ -99,7 +99,7 @@ async function migrateLegacyForUser(db:IDBDatabase,user:UserProfile):Promise<voi
         store.put(migrated);
         // Keep the legacy key only when it is already the scoped key; otherwise
         // remove the old unscoped record after copying it into the account scope.
-        const scopedId=String(accountId)+':'+String(userId)+':'+String(item.id);
+        const rawId=String(item.id); const prefix=String(accountId)+':'+String(userId)+':'; const localId=rawId.startsWith(prefix)?rawId.slice(prefix.length):rawId.startsWith(String(accountId)+':')?rawId.slice(String(accountId).length+1):rawId; const scopedId=prefix+localId;
         if(String(item.id)!==scopedId){
           store.delete(item.id);
           store.put({...migrated,id:scopedId});
@@ -202,7 +202,7 @@ export async function cacheSnapshot(orders:ServiceOrder[],user:UserProfile|null,
       for(const client of pendingClientCreates){
         const cid=String(client.id);
         if(!pendingClientDeletes.has(cid)){
-          cs.put({id:accountId+':'+client.id,accountId,value:client});
+          cs.put({id:accountId+':'+userId+':'+client.id,accountId,userId,value:client});
         }
       }
     }
