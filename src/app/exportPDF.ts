@@ -23,7 +23,9 @@ const companyAddress = (company?: CompanyProfileData | null) =>
     ? ` — ${[company?.city, company?.state].filter(Boolean).join("/")}${company?.postalCode ? ` · CEP ${company.postalCode}` : ""}`
     : "");
 
-export async function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico") {
+export type PdfMode = "client" | "admin";
+
+export async function exportPDF(order: ServiceOrder, client?: Client, techName = "Técnico", mode: PdfMode = "client") {
   const win = window.open("", "_blank");
   if (!win) {
     window.alert("O navegador bloqueou a janela do PDF. Permita pop-ups para este site e tente novamente.");
@@ -43,10 +45,12 @@ export async function exportPDF(order: ServiceOrder, client?: Client, techName =
   const pending = payments.length
     ? payments.filter((payment) => payment.status === "pending").reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
     : Math.max(0, Number(order.clientValue || 0) - paid);
-  const hasFinancialData = totalExpenses > 0 || Number(order.clientValue || 0) > 0 || payments.length > 0;
+  const isAdminPdf = mode === "admin";
+  const hasFinancialData = isAdminPdf && (totalExpenses > 0 || Number(order.clientValue || 0) > 0 || payments.length > 0);
 
   const logoUrl = safeUrl(company?.logoUrl || company?.logoKey);
   const companyName = company?.tradeName || company?.legalName || "QTECNICO";
+  const documentLabel = isAdminPdf ? "Documento administrativo · Uso interno" : "Relatório de serviço · Cliente";
   const companyDocument = company?.document ? `CNPJ/CPF: ${esc(company.document)}` : "";
   const contactParts = [company?.phone, company?.whatsapp ? `WhatsApp: ${company.whatsapp}` : "", company?.email].filter(Boolean);
   const address = companyAddress(company);
@@ -128,7 +132,7 @@ td{vertical-align:top;padding:6px;border-bottom:1px solid #edf1f5}
     ${logoUrl ? `<img class="logo" src="${logoUrl}" alt="Logo"/>` : ""}
     <div>
       <div class="brand-name">${esc(companyName)}</div>
-      <div class="meta">${esc(company?.description || "Gestão de Ordens de Serviço")}</div>
+      <div class="meta">${esc(documentLabel)}</div>
       ${companyDocument ? `<div class="meta">${companyDocument}</div>` : ""}
       ${contactParts.length ? `<div class="meta">${esc(contactParts.join(" · "))}</div>` : ""}
       ${address ? `<div class="meta">${esc(address)}</div>` : ""}
@@ -195,4 +199,12 @@ window.addEventListener("load", async () => {
   win.document.open();
   win.document.write(html);
   win.document.close();
+}
+
+export function exportClientPDF(order: ServiceOrder, client?: Client, techName = "Técnico") {
+  return exportPDF(order, client, techName, "client");
+}
+
+export function exportAdminPDF(order: ServiceOrder, client?: Client, techName = "Técnico") {
+  return exportPDF(order, client, techName, "admin");
 }
