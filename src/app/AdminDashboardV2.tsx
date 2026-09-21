@@ -7,7 +7,6 @@ import AdminShellV2, { type AdminSectionV2 } from './AdminShellV2';
 import TeamManagement from './TeamManagement';
 import ClientsManagement from './ClientsManagement';
 import OrdersManagement from './OrdersManagement';
-import AttendanceManagement from './AttendanceManagement';
 import AgendaManagement from './AgendaManagement';
 import FinanceManagement from './FinanceManagement';
 import CompanyProfile from './CompanyProfile';
