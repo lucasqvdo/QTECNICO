@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { BarChart3, Building2, CalendarDays, ClipboardList, Clock3, CreditCard, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
+import { BarChart3, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
 import { api } from './api';
 import ConnectivityStatus from './components/ConnectivityStatus';
 
@@ -12,7 +12,7 @@ type NavItem = readonly [string, typeof BarChart3, string, string];
 const ADMIN_NAV: NavItem[] = [
   ['dashboard', BarChart3, 'Dashboard', 'Visão geral do negócio'],
   ['orders', ClipboardList, 'Ordens de Serviço', 'Operação e chamados'],
-  ['attendances', Clock3, 'Atendimentos', 'Execução em campo'],
+  ['attendances', 'Atendimentos', 'Execução em campo'],
   ['clients', Users, 'Clientes', 'Base comercial'],
   ['team', Wrench, 'Técnicos / Equipe', 'Pessoas e acessos'],
   ['agenda', CalendarDays, 'Agenda', 'Programação'],
@@ -24,7 +24,6 @@ const ADMIN_NAV: NavItem[] = [
 const TECH_NAV: NavItem[] = [
   ['home', BarChart3, 'Início', 'Minha operação'],
   ['orders', ClipboardList, 'Minhas Ordens', 'Chamados atribuídos'],
-  ['attendances', Clock3, 'Atendimentos', 'Execução em campo'],
   ['agenda', CalendarDays, 'Agenda', 'Minha programação'],
   ['profile', Users, 'Meu Perfil', 'Dados e acesso'],
 ];
