@@ -3,7 +3,7 @@ import { BarChart3, Building2, CalendarDays, Clock3, ClipboardList, CreditCard, 
 import { api } from './api';
 import ConnectivityStatus from './components/ConnectivityStatus';
 
-export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'attendances' | 'agenda' | 'finance' | 'company' | 'billing';
+export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'agenda' | 'finance' | 'company' | 'billing';
 export type TechnicianSectionV2 = 'home' | 'orders' | 'attendances' | 'agenda' | 'profile';
 export type ShellMode = 'admin' | 'technician';
 
@@ -12,7 +12,6 @@ type NavItem = readonly [string, typeof BarChart3, string, string];
 const ADMIN_NAV: NavItem[] = [
   ['dashboard', BarChart3, 'Dashboard', 'Visão geral do negócio'],
   ['orders', ClipboardList, 'Ordens de Serviço', 'Operação e chamados'],
-  ['attendances', 'Atendimentos', 'Execução em campo'],
   ['clients', Users, 'Clientes', 'Base comercial'],
   ['team', Wrench, 'Técnicos / Equipe', 'Pessoas e acessos'],
   ['agenda', CalendarDays, 'Agenda', 'Programação'],
