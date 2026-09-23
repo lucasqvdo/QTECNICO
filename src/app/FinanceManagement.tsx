@@ -58,9 +58,10 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
     const contracted = filteredOrders.reduce((s, o) => s + (Number(o.clientValue) || 0), 0);
     const received = filteredOrders.reduce((s, o) => s + o.payments.filter((p) => p.status === 'paid').reduce((a, p) => a + (Number(p.amount) || 0), 0), 0);
     const expectedPending = filteredOrders.reduce((s, o) => s + o.payments.filter((p) => p.status === 'pending').reduce((a, p) => a + (Number(p.amount) || 0), 0), 0);
-    const receivable = Math.max(contracted - received, 0);
+    const receivable = filteredOrders.reduce((s, o) => { const orderReceived = o.payments.filter((p) => p.status === 'paid').reduce((a, p) => a + (Number(p.amount) || 0), 0); return s + Math.max((Number(o.clientValue) || 0) - orderReceived, 0); }, 0);
+    const receivableOrders = filteredOrders.filter((o) => { const orderReceived = o.payments.filter((p) => p.status === 'paid').reduce((a, p) => a + (Number(p.amount) || 0), 0); return Number(o.clientValue) > 0 && orderReceived < Number(o.clientValue); }).length;
     const expenses = filteredOrders.reduce((s, o) => s + o.expenses.reduce((a, e) => a + (Number(e.amount) || 0), 0), 0);
-    return { contracted, received, expectedPending, receivable, expenses, result: received - expenses };
+    return { contracted, received, expectedPending, receivable, receivableOrders, expenses, result: received - expenses };
   }, [filteredOrders]);
 
   const clientOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.client).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [orders]);
@@ -185,7 +186,8 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Card icon={DollarSign} label="Faturamento" value={money(totals.contracted)} />
       <Card icon={ArrowDownCircle} label="Recebido" value={money(totals.received)} />
-      <Card icon={ArrowUpCircle} label="A receber" value={money(totals.receivable)} detail={totals.expectedPending ? `${money(totals.expectedPending)} lançados` : undefined} />
+      <Card icon={ArrowUpCircle} label="A receber" value={money(totals.receivable)} detail={`${totals.receivableOrders} ${totals.receivableOrders === 1 ? "OS com saldo" : "OS com saldo"}`} />
+      <Card icon={Clock3} label="Pagamentos pendentes" value={money(totals.expectedPending)} detail="Lançamentos já cadastrados" />
       <Card icon={ArrowUpCircle} label="Custos" value={money(totals.expenses)} />
       <Card icon={DollarSign} label="Resultado" value={money(totals.result)} detail="Recebido − custos" />
     </section>
