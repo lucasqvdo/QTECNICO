@@ -42,10 +42,20 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
   const nav = mode === 'admin' ? ADMIN_NAV : TECH_NAV;
 
   useEffect(() => {
-    void Promise.all([api.getMe(), api.getCompanyProfile()]).then(([u, c]) => {
-      setUser({ name: u.name?.trim() || u.email, role: u.role });
-      setCompany(c?.tradeName || c?.legalName || 'QTECNICO');
-    }).catch(() => undefined);
+    let mounted = true;
+    void api.getMe()
+      .then((u) => {
+        if (!mounted) return;
+        setUser({ name: u.name?.trim() || u.email, role: u.role });
+      })
+      .catch(() => undefined);
+    void api.getCompanyProfile()
+      .then((c) => {
+        if (!mounted) return;
+        setCompany(c?.tradeName || c?.legalName || 'QTECNICO');
+      })
+      .catch(() => undefined);
+    return () => { mounted = false; };
   }, []);
 
   const go = (s: string) => { onSectionChange(s); setMobileOpen(false); };
