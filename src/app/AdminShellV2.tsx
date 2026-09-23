@@ -37,13 +37,13 @@ type Props = {
 export default function AdminShellV2({ section, onSectionChange, children, mode = 'admin' }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [user, setUser] = useState({ name: 'Usuário', role: mode === 'admin' ? 'Administrador' : 'Técnico' });
+  const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [company, setCompany] = useState('QTECNICO');
   const nav = mode === 'admin' ? ADMIN_NAV : TECH_NAV;
 
   useEffect(() => {
     void Promise.all([api.getMe(), api.getCompanyProfile()]).then(([u, c]) => {
-      setUser({ name: u.name, role: u.role });
+      setUser({ name: u.name?.trim() || u.email, role: u.role });
       setCompany(c?.tradeName || c?.legalName || 'QTECNICO');
     }).catch(() => undefined);
   }, []);
@@ -88,7 +88,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
       </nav>
 
       <div className="border-t border-white/10 p-3">
-        {!(collapsed && !mobile) && <div className="mb-2 rounded-xl bg-white/5 p-3"><p className="truncate text-sm font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.role}</p><p className="mt-1 truncate text-[10px] text-cyan-400">{company}</p></div>}
+        {!(collapsed && !mobile) && <div className="mb-2 rounded-xl bg-white/5 p-3"><p className="truncate text-sm font-semibold">{user?.name || 'Carregando...'}</p><p className="text-xs text-slate-500">{user?.role || (mode === 'admin' ? 'Administrador' : 'Técnico')}</p><p className="mt-1 truncate text-[10px] text-cyan-400">{company}</p></div>}
         <button onClick={logout} className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-sm text-slate-400 hover:text-red-300 ${collapsed && !mobile ? 'justify-center' : ''}`}><LogOut size={18} />{!(collapsed && !mobile) && 'Sair'}</button>
       </div>
     </aside>
@@ -97,7 +97,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
   const current = nav.find(x => x[0] === section);
   return (
     <div className="min-h-screen bg-slate-100">
-      <header className={`fixed inset-x-0 top-0 z-30 h-16 border-b border-slate-200 bg-white/95 ${collapsed ? 'lg:left-[76px]' : 'lg:left-[272px]'}`}>
+      <header className={`fixed right-0 top-0 z-30 h-16 border-b border-slate-200 bg-white/95 transition-[left] ${collapsed ? 'left-0 lg:left-[76px]' : 'left-0 lg:left-[272px]'}`}>
         <div className="flex h-full items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <button className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu /></button>
@@ -113,7 +113,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
         </div>
       </header>
 
-      <div className="fixed inset-y-0 left-0 z-20 hidden pt-16 lg:block">{side()}</div>
+      <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">{side()}</div>
       {mobileOpen && <><button className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fechar menu" /><div className="fixed inset-y-0 left-0 z-50 lg:hidden">{side(true)}</div></>}
       <main className={`min-h-screen pt-16 ${collapsed ? 'lg:ml-[76px]' : 'lg:ml-[272px]'}`}>{children}</main>
     </div>
