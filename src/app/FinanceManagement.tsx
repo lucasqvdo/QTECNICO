@@ -13,6 +13,9 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
   const [period, setPeriod] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [search, setSearch] = useState('');
+  const [clientFilter, setClientFilter] = useState('all');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
+  const [financialStatusFilter, setFinancialStatusFilter] = useState('all');
   const [modal, setModal] = useState<Modal>(null);
   const [editing, setEditing] = useState<EditingTransaction>(null);
   const [selectedOrder, setSelectedOrder] = useState<ServiceOrder | null>(null);
@@ -37,10 +40,19 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
       result = result.filter((o) => new Date(`${o.date}T23:59:59`) >= cutoff);
     }
     if (paymentFilter !== 'all') result = result.filter((o) => o.paymentStatus === paymentFilter);
+    if (clientFilter !== 'all') result = result.filter((o) => o.client === clientFilter);
+    if (orderStatusFilter !== 'all') result = result.filter((o) => o.status === orderStatusFilter);
+    if (financialStatusFilter !== 'all') result = result.filter((o) => {
+      const received = o.payments.filter((p) => p.status === 'paid').reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      if (financialStatusFilter === 'unpaid') return received <= 0 && o.clientValue > 0;
+      if (financialStatusFilter === 'partial') return received > 0 && received < o.clientValue;
+      if (financialStatusFilter === 'settled') return o.clientValue > 0 && received >= o.clientValue;
+      return true;
+    });
     const term = search.trim().toLowerCase();
     if (term) result = result.filter((o) => `${o.id} ${o.client} ${o.type}`.toLowerCase().includes(term));
     return result;
-  }, [orders, period, paymentFilter, search]);
+  }, [orders, period, paymentFilter, clientFilter, orderStatusFilter, financialStatusFilter, search]);
 
   const totals = useMemo(() => {
     const contracted = filteredOrders.reduce((s, o) => s + (Number(o.clientValue) || 0), 0);
@@ -51,7 +63,11 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
     return { contracted, received, expectedPending, receivable, expenses, result: received - expenses };
   }, [filteredOrders]);
 
-  const financeOrder = financeOrderId ? orders.find((o) => String(o.id) === financeOrderId) || null : null;
+  const clientOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.client).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [orders]);
+  const hasFilters = period !== 'all' || paymentFilter !== 'all' || clientFilter !== 'all' || orderStatusFilter !== 'all' || financialStatusFilter !== 'all' || !!search.trim();
+  const clearFilters = () => { setPeriod('all'); setPaymentFilter('all'); setClientFilter('all'); setOrderStatusFilter('all'); setFinancialStatusFilter('all'); setSearch(''); };
+
+    const financeOrder = financeOrderId ? orders.find((o) => String(o.id) === financeOrderId) || null : null;
 
   const transactions = useMemo(() => filteredOrders.flatMap((o) => [
     ...o.payments.map((p) => ({ kind: 'payment' as const, id: `${o.id}-${p.id}`, date: p.date, label: p.label, order: o, amount: p.amount, status: p.status })),
@@ -143,7 +159,7 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
   return <div className="p-4 sm:p-6 lg:p-8">
     <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div><button onClick={onBack} className="mb-2 text-sm font-semibold text-cyan-600 hover:text-cyan-700">← Voltar ao dashboard</button><h1 className="text-3xl font-bold tracking-tight">Financeiro</h1><p className="mt-1 text-sm text-slate-500">Controle de faturamento, recebimentos, contas a receber e custos das OS.</p></div>
-      <div className="flex flex-wrap gap-2"><select value={period} onChange={(e) => setPeriod(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">Todo o período</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option></select><select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value as any)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">Todos os pagamentos</option><option value="pending">A receber</option><option value="paid">Pagos</option></select></div>
+      
     </div>
 
     {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -157,7 +173,7 @@ export default function FinanceManagement({ orders, onOrdersChange, onBack }: { 
     </section>
 
     <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-100 p-5 md:flex-row md:items-center md:justify-between"><div><h2 className="font-bold">Contas por OS</h2><p className="text-xs text-slate-500">Acompanhe o valor contratado, recebido, saldo e custos.</p></div><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar OS, cliente ou serviço" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm md:w-72" /></div>
+      <div className="border-b border-slate-100 p-5"><div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"><div><h2 className="font-bold">Contas por OS</h2><p className="text-xs text-slate-500">Acompanhe o valor contratado, recebido, saldo e custos. <strong>{filteredOrders.length}</strong> de {orders.length} OS.</p></div>{hasFilters && <button onClick={clearFilters} className="self-start rounded-lg px-3 py-2 text-xs font-semibold text-cyan-700 hover:bg-cyan-50">Limpar filtros</button>}</div><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar OS, cliente ou serviço" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm xl:col-span-2"/><select value={clientFilter} onChange={(e)=>setClientFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="all">Todos os clientes</option>{clientOptions.map((client)=><option key={client} value={client}>{client}</option>)}</select><select value={orderStatusFilter} onChange={(e)=>setOrderStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="all">Todos os status da OS</option><option value="pending">Pendente</option><option value="in_progress">Em andamento</option><option value="completed">Concluída</option><option value="cancelled">Cancelada</option></select><select value={financialStatusFilter} onChange={(e)=>setFinancialStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="all">Situação financeira</option><option value="unpaid">Não recebido</option><option value="partial">Parcial</option><option value="settled">Quitado</option></select><select value={period} onChange={(e)=>setPeriod(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="all">Todo o período</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option></select></div></div>
       <div className="divide-y divide-slate-100">
         {filteredOrders.map((o) => { const received = o.payments.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0); const expenses = o.expenses.reduce((s, e) => s + e.amount, 0); const balance = Math.max(o.clientValue - received, 0); return <button type="button" key={o.id} onClick={() => setFinanceOrderId(String(o.id))} className="w-full p-5 text-left transition hover:bg-slate-50"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-bold">{o.id}</span><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${balance > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{balance > 0 ? 'A receber' : 'Quitada'}</span></div><p className="mt-1 font-medium">{o.client}</p><p className="text-xs text-slate-500">{o.type} · {o.date}</p></div><div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:min-w-[620px]"><Metric label="Contratado" value={money(o.clientValue)} /><Metric label="Recebido" value={money(received)} /><Metric label="Saldo" value={money(balance)} /><Metric label="Custos" value={money(expenses)} /></div><span className="text-sm font-semibold text-cyan-600">Abrir financeiro →</span></div></button>; })}
         {!filteredOrders.length && <div className="p-10 text-center text-sm text-slate-500">Nenhuma OS encontrada.</div>}
