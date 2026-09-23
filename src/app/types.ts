@@ -29,6 +29,8 @@ export interface ServiceOrder {
   address: string;
   phone: string;
   type: string;
+  serviceCategory?: "CFTV" | "Alarme" | "Controle de acesso" | "Rede" | "Incêndio" | "Fechadura eletrônica" | "Interfonia" | "Automação" | "Infraestrutura/Cabeamento" | "Outro";
+  materialSupply?: "none" | "partial" | "full";
   status: OrderStatus;
   date: string;
   priority: "low" | "medium" | "high";
