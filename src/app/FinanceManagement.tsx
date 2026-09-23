@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, DollarSign, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Clock3, DollarSign, Plus, Pencil, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import type { Expense, Payment, ServiceOrder } from './types';
 
