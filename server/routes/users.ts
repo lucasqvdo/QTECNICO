@@ -7,12 +7,15 @@ import { getDownloadUrl } from '../storage.js';
 const router = Router();
 const MIN_PASSWORD_LENGTH = 8;
 
-const PLAN_USER_LIMITS: Record<string, number> = { essential: 2, pro: 10, business: 30, light: 2, medium: 10, power: 10 };
+const PLAN_USER_LIMITS: Record<string, number> = { essential: 2, pro: 10, business: 30 };
+const PLAN_ALIASES: Record<string, string> = { free: 'essential', light: 'essential', medium: 'pro', power: 'pro', professional: 'pro', enterprise: 'business' };
 
 async function getAccountEntitlements(accountId: number) {
-  const result = await pool.query(`SELECT COALESCE(s.plan_key,a.plan_key,'essential') AS plan_key, COALESCE(sp.features,'[]'::jsonb) AS features, COALESCE(sp.limits,'{}'::jsonb) AS limits FROM accounts a LEFT JOIN LATERAL (SELECT plan_key FROM subscriptions WHERE account_id=a.id ORDER BY created_at DESC LIMIT 1) s ON TRUE LEFT JOIN saas_plans sp ON sp.plan_key=COALESCE(s.plan_key,a.plan_key) WHERE a.id=$1`, [accountId]);
-  const row = result.rows[0] || {}; const key = String(row.plan_key || 'essential'); const limits = row.limits && typeof row.limits === 'object' ? row.limits : {};
-  return { planKey: key, features: Array.isArray(row.features) ? row.features : [], limits: { ...limits, maxUsers: Number(limits.maxUsers || limits.max_users || PLAN_USER_LIMITS[key] || 2) } };
+  const result = await pool.query(`SELECT COALESCE(s.plan_key,a.plan_key,'essential') AS plan_key FROM accounts a LEFT JOIN LATERAL (SELECT plan_key FROM subscriptions WHERE account_id=a.id ORDER BY created_at DESC LIMIT 1) s ON TRUE WHERE a.id=$1`, [accountId]);
+  const rawKey = String(result.rows[0]?.plan_key || 'essential'); const key = PLAN_ALIASES[rawKey] || rawKey;
+  const plan = (await pool.query(`SELECT features,limits FROM saas_plans WHERE plan_key=$1 LIMIT 1`, [key])).rows[0] || {};
+  const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
+  return { planKey: key, features: Array.isArray(plan.features) ? plan.features : [], limits: { ...limits, maxUsers: Number(limits.maxUsers || limits.max_users || PLAN_USER_LIMITS[key] || 2) } };
 }
 
 async function getAdminAccountId(userId: number) {
