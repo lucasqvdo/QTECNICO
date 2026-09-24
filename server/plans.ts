@@ -1,3 +1,4 @@
+import { ACTIVE_TRIAL_SQL, trialInfo } from './trial.js';
 import { pool } from './db.js';
 
 export interface PlanLimits {
@@ -16,6 +17,8 @@ export interface Plan {
 
 export interface AccountContext {
   accountId: number;
+  contractedPlanKey: string;
+  trial: ReturnType<typeof trialInfo>;
   plan: Plan;
 }
 
@@ -28,12 +31,11 @@ function readLimit(value: unknown, nullable = false): number | null {
 }
 
 async function loadAccountContext(id: number, byUser: boolean): Promise<AccountContext | null> {
-  // accounts.plan_key é o plano efetivo. Uma assinatura pending_payment ainda
-  // não concede acesso; cobrança/backoffice atualizam a conta na ativação.
+  // O trial altera somente o acesso. Billing mantém accounts.plan_key como plano contratado.
   const { rows } = await pool.query(
-    `SELECT a.id AS account_id, p.plan_key, p.name, p.features, p.limits
+    `SELECT a.id AS account_id, a.plan_key AS contracted_plan_key, a.trial_started_at, a.trial_ends_at, a.trial_plan_key, a.trial_ended_at, p.plan_key, p.name, p.features, p.limits
        FROM accounts a
-       LEFT JOIN saas_plans p ON p.plan_key = a.plan_key
+       LEFT JOIN saas_plans p ON p.plan_key = CASE WHEN ${ACTIVE_TRIAL_SQL} THEN 'business' ELSE a.plan_key END
       WHERE a.id = ${byUser ? '(SELECT account_id FROM users WHERE id = $1)' : '$1'}`,
     [id],
   );
@@ -48,6 +50,8 @@ async function loadAccountContext(id: number, byUser: boolean): Promise<AccountC
   }
   return {
     accountId: Number(row.account_id),
+    contractedPlanKey: row.contracted_plan_key,
+    trial: trialInfo(row),
     plan: {
       key: row.plan_key,
       name: row.name,
@@ -85,10 +89,14 @@ export async function getMonthlyOrderUsage(accountId: number, limit: number | nu
 }
 
 export async function getAccountEntitlements(accountId: number) {
-  const plan = await getAccountPlan(accountId);
+  const context = await loadAccountContext(accountId, false);
+  if (!context) throw new Error('Conta não encontrada');
+  const plan = context.plan;
   const usage = await getMonthlyOrderUsage(accountId, plan.limits.ordersPerMonth);
   return {
     planKey: plan.key,
+    contractedPlanKey: context.contractedPlanKey,
+    trial: context.trial,
     features: plan.features,
     limits: { ...plan.limits, ordersUsedThisMonth: usage.used, ordersUsagePercent: usage.percent },
   };

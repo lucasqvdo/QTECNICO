@@ -1,4 +1,6 @@
+import { BACKOFFICE_MEMBERS_SCHEMA_SQL } from './backofficeMembers.js';
 import fs from 'fs';
+import { TRIAL_SCHEMA_SQL } from './trial.js';
 import { INITIAL_PLAN_CATALOG } from './planCatalog.js';
 import pkg from 'pg';
 import { MockPgPool } from './mockDb.js';
@@ -190,4 +192,6 @@ export async function initDbSchema() {
   await reconcileWebAuthnSchema();
   await reconcileMultiTenantSchema();
   await reconcilePlanCatalog();
+  await pool.query(TRIAL_SCHEMA_SQL);
+  await pool.query(BACKOFFICE_MEMBERS_SCHEMA_SQL);
 }

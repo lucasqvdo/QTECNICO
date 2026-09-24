@@ -21,20 +21,13 @@ function parseCookies(req: Request): Record<string, string> {
 
 function hashToken(token: string) { return createHash('sha256').update(token).digest('hex'); }
 
-function configuredEmails() {
-  return (process.env.BACKOFFICE_ADMIN_EMAILS || '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
+export async function getBackofficeRole(userId: number): Promise<'owner' | 'collaborator' | null> {
+  const result = await pool.query('SELECT role FROM backoffice_members WHERE user_id=$1 AND active=TRUE', [userId]);
+  return result.rows[0]?.role || null;
 }
 
 export async function isPlatformAdmin(userId: number) {
-  const configured = configuredEmails();
-  const result = await pool.query('SELECT email, is_admin FROM users WHERE id = $1', [userId]);
-  const user = result.rows[0];
-  if (!user || !user.is_admin) return false;
-  const email = String(user.email || '').trim().toLowerCase();
-  if (configured.length > 0) {
-    return email ? configured.includes(email) : false;
-  }
-  return true;
+  return (await getBackofficeRole(userId)) !== null;
 }
 
 export async function createBackofficeSession(userId: number, res: Response) {

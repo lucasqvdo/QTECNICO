@@ -1,3 +1,4 @@
+import { grantRegistrationTrial, normalizeCompanyDocument } from '../trial.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { createHash, randomInt } from 'crypto';
@@ -76,6 +77,7 @@ router.post('/register', authRateLimit, async (req, res) => {
   }
   const adminName = String(registration.adminName).trim();
   const company = registration.company;
+  if (!normalizeCompanyDocument(String(company.document))) return res.status(400).json({ error: 'Documento da empresa inválido.' });
   if (registration.adminEmail && String(registration.adminEmail).trim().toLowerCase() !== normalizedEmail) return res.status(400).json({ error: 'O e-mail do administrador não confere.' });
 
   const client = await pool.connect();
@@ -96,6 +98,7 @@ router.post('/register', authRateLimit, async (req, res) => {
     if (exists.rows.length > 0) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'E-mail já cadastrado' }); }
     const accountResult = await client.query(`INSERT INTO accounts (owner_user_id, plan_key, subscription_status) VALUES (NULL, 'essential', 'active') RETURNING id`);
     const accountId = accountResult.rows[0].id;
+    await grantRegistrationTrial(client, accountId, String(company.document));
     const hash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
       `INSERT INTO users (name, role, phone, email, password_hash, is_admin, account_id) VALUES ($1, $2, $3, $4, $5, TRUE, $6) RETURNING id, account_id, name, role, phone, email, photo_url, is_admin`,

@@ -1,3 +1,4 @@
+import TrialBanner from './TrialBanner';
 import { useEffect, useState, type ReactNode } from 'react';
 import { BarChart3, Building2, CalendarDays, Clock3, ClipboardList, CreditCard, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
 import { api } from './api';
@@ -50,14 +51,16 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
         setUser({ name: u.name?.trim() || u.email, role: u.role });
       })
       .catch(() => undefined);
-    if (mode === 'admin') void api.getAdminAccess().then((a) => { if (mounted) setPlanAccess({ planKey: a.planKey, features: a.features }); }).catch(() => undefined);
+    const refreshAccess = () => { if (mode === 'admin') void api.getAdminAccess().then((a) => { if (mounted) setPlanAccess({ planKey: a.planKey, features: a.features }); }).catch(() => undefined); };
+    refreshAccess();
+    window.addEventListener('qtecnico-plan-changed', refreshAccess);
     void api.getCompanyProfile()
       .then((c) => {
         if (!mounted) return;
         setCompany(c?.tradeName || c?.legalName || 'QTECNICO');
       })
       .catch(() => undefined);
-    return () => { mounted = false; };
+    return () => { mounted = false; window.removeEventListener('qtecnico-plan-changed', refreshAccess); };
   }, []);
 
   const featureForSection: Partial<Record<string,string>> = { finance: 'consolidatedFinance' };
@@ -129,7 +132,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
 
       <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">{side()}</div>
       {mobileOpen && <><button className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fechar menu" /><div className="fixed inset-y-0 left-0 z-50 lg:hidden">{side(true)}</div></>}
-      <main className={`min-h-screen pt-16 ${collapsed ? 'lg:ml-[76px]' : 'lg:ml-[272px]'}`}>{children}</main>
+      <main className={`min-h-screen pt-16 ${collapsed ? 'lg:ml-[76px]' : 'lg:ml-[272px]'}`}><TrialBanner onChoosePlan={mode === 'admin' ? () => onSectionChange('billing') : undefined}/>{children}</main>
     </div>
   );
 }

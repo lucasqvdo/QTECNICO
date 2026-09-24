@@ -1,3 +1,5 @@
+import { BACKOFFICE_MEMBERS_SCHEMA_SQL } from '../server/backofficeMembers.js';
+import { TRIAL_SCHEMA_SQL } from '../server/trial.js';
 import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
 import { once } from 'node:events';
@@ -12,8 +14,6 @@ import backofficeRouter from '../server/routes/backoffice.js';
 test('PostgreSQL: change plan down and up, with and without a subscription', async () => {
   const db = new PGlite();
   let server: ReturnType<ReturnType<typeof express>['listen']> | undefined;
-  const previousEmails = process.env.BACKOFFICE_ADMIN_EMAILS;
-  process.env.BACKOFFICE_ADMIN_EMAILS = 'admin@example.test';
   try {
     await db.exec(`
       CREATE TABLE accounts (id int PRIMARY KEY, plan_key text, subscription_status text, current_period_end timestamptz);
@@ -29,6 +29,9 @@ test('PostgreSQL: change plan down and up, with and without a subscription', asy
       INSERT INTO subscriptions (account_id,plan_key,status,amount,currency,billing_interval,current_period_start,current_period_end)
         VALUES (1,'business','active',199.90,'BRL','month',NOW(),NOW() + INTERVAL '1 month');
     `);
+    await db.exec(TRIAL_SCHEMA_SQL);
+    await db.exec(BACKOFFICE_MEMBERS_SCHEMA_SQL);
+    await db.exec("INSERT INTO backoffice_members (user_id,role) VALUES (1,'owner')");
     for (const [key, name, , amount, features, limits] of INITIAL_PLAN_CATALOG) {
       await db.query('INSERT INTO saas_plans VALUES ($1,$2,$3,\'BRL\',\'month\',TRUE,$4,$5)', [key, name, amount, JSON.stringify(features), JSON.stringify(limits)]);
     }
@@ -87,8 +90,6 @@ test('PostgreSQL: change plan down and up, with and without a subscription', asy
   } finally {
     if (server?.listening) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
     mock.restoreAll();
-    if (previousEmails === undefined) delete process.env.BACKOFFICE_ADMIN_EMAILS;
-    else process.env.BACKOFFICE_ADMIN_EMAILS = previousEmails;
     await db.close();
   }
 });

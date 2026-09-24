@@ -1,3 +1,4 @@
+import { getAccountContext } from '../plans.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
@@ -6,6 +7,12 @@ import { requireAuth, requireAdmin } from '../auth.js';
 import { getDownloadUrl } from '../storage.js';
 
 const router = Router();
+
+router.get('/trial', requireAuth, async (req, res) => {
+  const context = await getAccountContext(req.userId!);
+  if (!context) return res.status(404).json({ error: 'Conta não encontrada.' });
+  res.json({ trial: context.trial, contractedPlanKey: context.contractedPlanKey, effectivePlanKey: context.plan.key });
+});
 const MIN_PASSWORD_LENGTH = 8;
 
 async function getAdminAccountId(userId: number) {

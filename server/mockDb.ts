@@ -1,3 +1,4 @@
+import { trialInfo } from './trial.js';
 import bcrypt from 'bcryptjs';
 import { INITIAL_PLAN_CATALOG } from './planCatalog.js';
 
@@ -408,15 +409,19 @@ export class MockPgPool {
       return { rows: [], rowCount: session ? 1 : 0 };
     }
 
+    if (clean.startsWith('select role from backoffice_members')) {
+      return { rows: Number(params[0]) === 1 ? [{role: 'owner'}] : [], rowCount: Number(params[0]) === 1 ? 1 : 0 };
+    }
+
     // Plano efetivo, com a mesma fonte usada pelo backend PostgreSQL.
-    if (clean.includes('from accounts a left join saas_plans p on p.plan_key = a.plan_key')) {
+    if (clean.includes('from accounts a left join saas_plans p on p.plan_key =')) {
       const accountId = clean.includes('(select account_id from users where id = $1)')
         ? this.store.users.find((u) => u.id === Number(params[0]))?.account_id
         : Number(params[0]);
       const account = this.store.accounts.find((a) => a.id === accountId);
       if (!account) return { rows: [], rowCount: 0 };
-      const plan = this.store.saas_plans.find((p) => p.plan_key === account.plan_key);
-      return { rows: [{ account_id: account.id, ...(plan || {}) }], rowCount: 1 };
+      const plan = this.store.saas_plans.find((p) => p.plan_key === (trialInfo(account).active ? 'business' : account.plan_key));
+      return { rows: [{ ...account, contracted_plan_key: account.plan_key, account_id: account.id, ...(plan || {}) }], rowCount: 1 };
     }
 
     // --- USERS ---

@@ -1,3 +1,4 @@
+import TrialBanner from './TrialBanner';
 import { useState, useRef, useEffect } from "react";
 import {
   ClipboardList, User, Plus, LogOut, ChevronRight, Clock, CheckCircle2,
@@ -249,6 +250,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
+      <TrialBanner/>
       {/* Header */}
       <header className="bg-primary text-primary-foreground px-4 pt-10 pb-4 flex-shrink-0">
         <div className="flex items-center gap-3">
