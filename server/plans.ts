@@ -1,9 +1,4 @@
-/**
- * Definição dos planos. Mantida como config estática (não em tabela no banco)
- * porque muda pouco e assim fica fácil revisar/versionar no código — se um dia
- * precisar editar preço/limite sem deploy, migra pra uma tabela `plans`.
- */
-export type PlanKey = 'free' | 'entry' | 'medium' | 'power';
+export type PlanKey = 'essential' | 'pro' | 'business';
 
 export interface PlanLimits {
   /** null = ilimitado */
@@ -11,7 +6,6 @@ export interface PlanLimits {
   maxPhotosPerAttendance: number | null;
   maxUsers: number;
 }
-
 export interface PlanFeatures {
   financialReports: boolean;
   pdfExport: boolean;
@@ -20,74 +14,11 @@ export interface PlanFeatures {
   api: boolean;
   whiteLabel: boolean;
 }
+export interface Plan { key:PlanKey; name:string; priceCents:number; limits:PlanLimits; features:PlanFeatures; }
 
-export interface Plan {
-  key: PlanKey;
-  name: string;
-  priceCents: number; // preço mensal em centavos, 0 = grátis
-  limits: PlanLimits;
-  features: PlanFeatures;
-}
-
-export const PLANS: Record<PlanKey, Plan> = {
-  free: {
-    key: 'free',
-    name: 'Grátis',
-    priceCents: 0,
-    limits: { maxOrdersPerMonth: 15, maxPhotosPerAttendance: 2, maxUsers: 1 },
-    features: {
-      financialReports: false,
-      pdfExport: false,
-      clientNotifications: false,
-      multiUser: false,
-      api: false,
-      whiteLabel: false,
-    },
-  },
-  entry: {
-    key: 'entry',
-    name: 'Entrada',
-    priceCents: 2900,
-    limits: { maxOrdersPerMonth: null, maxPhotosPerAttendance: null, maxUsers: 1 },
-    features: {
-      financialReports: true,
-      pdfExport: true,
-      clientNotifications: false,
-      multiUser: false,
-      api: false,
-      whiteLabel: false,
-    },
-  },
-  medium: {
-    key: 'medium',
-    name: 'Médio',
-    priceCents: 7900,
-    limits: { maxOrdersPerMonth: null, maxPhotosPerAttendance: null, maxUsers: 5 },
-    features: {
-      financialReports: true,
-      pdfExport: true,
-      clientNotifications: true,
-      multiUser: true,
-      api: false,
-      whiteLabel: false,
-    },
-  },
-  power: {
-    key: 'power',
-    name: 'Power',
-    priceCents: 19900,
-    limits: { maxOrdersPerMonth: null, maxPhotosPerAttendance: null, maxUsers: Infinity as unknown as number },
-    features: {
-      financialReports: true,
-      pdfExport: true,
-      clientNotifications: true,
-      multiUser: true,
-      api: true,
-      whiteLabel: true,
-    },
-  },
+export const PLANS:Record<PlanKey,Plan>={
+  essential:{key:'essential',name:'Essencial',priceCents:4990,limits:{maxOrdersPerMonth:50,maxPhotosPerAttendance:null,maxUsers:2},features:{financialReports:false,pdfExport:true,clientNotifications:false,multiUser:true,api:false,whiteLabel:false}},
+  pro:{key:'pro',name:'Pro',priceCents:9990,limits:{maxOrdersPerMonth:250,maxPhotosPerAttendance:null,maxUsers:10},features:{financialReports:true,pdfExport:true,clientNotifications:true,multiUser:true,api:false,whiteLabel:false}},
+  business:{key:'business',name:'Business',priceCents:19990,limits:{maxOrdersPerMonth:1000,maxPhotosPerAttendance:null,maxUsers:30},features:{financialReports:true,pdfExport:true,clientNotifications:true,multiUser:true,api:true,whiteLabel:false}},
 };
-
-export function getPlan(key: string | null | undefined): Plan {
-  return PLANS[(key as PlanKey) in PLANS ? (key as PlanKey) : 'free'];
-}
+export function getPlan(key:string|null|undefined):Plan{return PLANS[(key as PlanKey) in PLANS?(key as PlanKey):'essential'];}
