@@ -39,6 +39,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [company, setCompany] = useState('QTECNICO');
+  const [planAccess, setPlanAccess] = useState<{ planKey: string; features: string[] } | null>(null);
   const nav = mode === 'admin' ? ADMIN_NAV : TECH_NAV;
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
         setUser({ name: u.name?.trim() || u.email, role: u.role });
       })
       .catch(() => undefined);
+    if (mode === 'admin') void api.getAdminAccess().then((a) => { if (mounted) setPlanAccess({ planKey: a.planKey, features: a.features }); }).catch(() => undefined);
     void api.getCompanyProfile()
       .then((c) => {
         if (!mounted) return;
@@ -58,7 +60,9 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
     return () => { mounted = false; };
   }, []);
 
-  const go = (s: string) => { onSectionChange(s); setMobileOpen(false); };
+  const featureForSection: Partial<Record<string,string>> = { finance: 'consolidatedFinance' };
+  const hasFeature = (feature: string) => planAccess?.features.includes(feature) ?? true;
+  const go = (s: string) => { const required = featureForSection[s]; if (required && !hasFeature(required)) { onSectionChange('billing'); } else { onSectionChange(s); } setMobileOpen(false); };
   const logout = async () => { try { await api.logout(); } finally { location.reload(); } };
 
   const side = (mobile = false) => (
@@ -89,12 +93,12 @@ export default function AdminShellV2({ section, onSectionChange, children, mode 
 
       <nav className="flex-1 overflow-y-auto p-3">
         <p className={`${collapsed && !mobile ? 'hidden' : 'block'} px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500`}>{mode === 'admin' ? 'Operação' : 'Meu trabalho'}</p>
-        {nav.map(([key, Icon, label, desc]) => (
+        {nav.map(([key, Icon, label, desc]) => { const required = featureForSection[key]; const locked = Boolean(required && !hasFeature(required)); return (
           <button key={key} onClick={() => go(key)} title={collapsed && !mobile ? label : undefined} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left ${collapsed && !mobile ? 'justify-center' : ''} ${section === key ? 'bg-cyan-500 text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}>
             <Icon size={19} />
-            {!(collapsed && !mobile) && <span><span className="block text-sm font-semibold">{label}</span><span className="block text-[10px] text-slate-500">{desc}</span></span>}
+            {!(collapsed && !mobile) && <span><span className="block text-sm font-semibold">{label}{locked ? ' · Pro' : ''}</span><span className="block text-[10px] text-slate-500">{locked ? 'Disponível no plano Pro' : desc}</span></span>}
           </button>
-        ))}
+        );})}
       </nav>
 
       <div className="border-t border-white/10 p-3">
