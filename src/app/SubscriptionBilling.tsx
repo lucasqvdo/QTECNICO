@@ -7,7 +7,7 @@ const money=(v:number)=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL
 const statusLabel=(s:string)=>({active:'Ativa',trial:'Em teste',trialing:'Em teste',past_due:'Em atraso',unpaid:'Não paga',cancelled:'Cancelada',canceled:'Cancelada',PENDING:'Pendente',RECEIVED:'Recebida',CONFIRMED:'Confirmada',OVERDUE:'Vencida',REFUNDED:'Estornada'}[s]||s||'—');
 
 export default function SubscriptionBilling({onBack}:Props){
- const [data,setData]=useState<BillingData|null>(null); const [loading,setLoading]=useState(true); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [selectedPlan,setSelectedPlan]=useState('medium'); const [billingType,setBillingType]=useState<'PIX'|'CREDIT_CARD'|'BOLETO'>('PIX');
+ const [data,setData]=useState<BillingData|null>(null); const [loading,setLoading]=useState(true); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [selectedPlan,setSelectedPlan]=useState('pro'); const [billingType,setBillingType]=useState<'PIX'|'CREDIT_CARD'|'BOLETO'>('PIX');
  const load=async()=>{setLoading(true);setError('');try{const value=await api.getBilling();setData(value);if(value.subscription?.planKey)setSelectedPlan(value.subscription.planKey);}catch(e){setError(e instanceof Error?e.message:'Não foi possível carregar a assinatura.');}finally{setLoading(false);}};
  useEffect(()=>{void load();},[]);
  const paidOrOpen=useMemo(()=>data?.payments?.find(p=>p.invoiceUrl&&['PENDING','CONFIRMED','OVERDUE','RECEIVED'].includes(p.status)),[data]);
