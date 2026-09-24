@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
-import { hasAccountFeature } from '../plans.js';
+import { getAccountPlan } from '../plans.js';
 import { requireAdmin } from '../auth.js';
 import { createBackofficeSession, requireBackofficeAuth, revokeBackofficeSession, isPlatformAdmin } from '../backofficeAuth.js';
 
@@ -38,7 +38,9 @@ router.get('/summary', requireAdmin, async (req, res) => {
     const userResult = await pool.query('SELECT account_id FROM users WHERE id = $1 AND is_admin = TRUE', [req.userId]);
     const accountId = userResult.rows[0]?.account_id;
     if (!accountId) return res.status(403).json({ error: 'Acesso administrativo não autorizado' });
-    const financialEntitled = await hasAccountFeature(accountId, 'financialIndicators');
+    const plan = await getAccountPlan(accountId);
+    const basicFinancialEntitled = plan.key === 'pro' || plan.key === 'business';
+    const advancedFinancialEntitled = plan.key === 'business';
     const startDate = getStartDate(req.query.days);
     const dateParams = startDate ? [accountId, startDate] : [accountId];
     const dateClause = startDate ? 'AND o.created_at >= $2' : '';
@@ -50,8 +52,26 @@ router.get('/summary', requireAdmin, async (req, res) => {
       pool.query(`SELECT COUNT(*)::int AS total,COUNT(*) FILTER (WHERE c.created_at >= date_trunc('month',CURRENT_DATE))::int AS new_this_month FROM clients c WHERE c.account_id=$1 ${clientDateClause}`, dateParams),
       pool.query(`SELECT o.id,o.client_name AS client,o.type,o.status,o.date,o.client_value::numeric AS value,o.assigned_technician_name AS technician FROM orders o WHERE o.account_id=$1 ${dateClause} ORDER BY o.created_at DESC LIMIT 8`, dateParams),
     ]);
-    const row = stats.rows[0] || {}; const revenue=Number(row.revenue||0); const costs=Number(row.costs||0);
-    res.json({ period:startDate?String(req.query.days):'all', entitlements:{financialIndicators:financialEntitled}, stats:{ total:Number(row.total||0), pending:Number(row.pending||0), inProgress:Number(row.in_progress||0), completed:Number(row.completed||0), cancelled:Number(row.cancelled||0), revenue:financialEntitled?revenue:0, paid:financialEntitled?Number(row.paid||0):0, costs:financialEntitled?costs:0, margin:financialEntitled?revenue-costs:0, clients:Number(clients.rows[0]?.total||0), newClients:Number(clients.rows[0]?.new_this_month||0) }, monthly:monthly.rows.reverse().map((x)=>({month:x.month,revenue:financialEntitled?Number(x.revenue||0):0,orders:Number(x.orders||0)})), technicians:technicians.rows.map((x)=>({id:x.id,name:x.name,orders:Number(x.orders||0),completed:Number(x.completed||0),revenue:financialEntitled?Number(x.revenue||0):0})), recent:recent.rows.map((x)=>({id:x.id,client:x.client,type:x.type,status:x.status,date:x.date,value:financialEntitled?Number(x.value||0):0,technician:x.technician||null})) });
+    const row = stats.rows[0] || {};
+    const revenue=Number(row.revenue||0); const paid=Number(row.paid||0); const costs=Number(row.costs||0); const total=Number(row.total||0);
+    res.json({
+      period:startDate?String(req.query.days):'all',
+      planKey:plan.key,
+      entitlements:{basicFinancial:basicFinancialEntitled,advancedFinancial:advancedFinancialEntitled},
+      stats:{
+        total, pending:Number(row.pending||0), inProgress:Number(row.in_progress||0), completed:Number(row.completed||0), cancelled:Number(row.cancelled||0),
+        revenue:basicFinancialEntitled?revenue:null,
+        paid:basicFinancialEntitled?paid:null,
+        receivable:basicFinancialEntitled?Math.max(revenue-paid,0):null,
+        averageTicket:basicFinancialEntitled&&total>0?revenue/total:null,
+        costs:advancedFinancialEntitled?costs:null,
+        margin:advancedFinancialEntitled?revenue-costs:null,
+        clients:Number(clients.rows[0]?.total||0), newClients:Number(clients.rows[0]?.new_this_month||0)
+      },
+      monthly:monthly.rows.reverse().map((x)=>({month:x.month,revenue:advancedFinancialEntitled?Number(x.revenue||0):null,orders:Number(x.orders||0)})),
+      technicians:technicians.rows.map((x)=>({id:x.id,name:x.name,orders:Number(x.orders||0),completed:Number(x.completed||0),revenue:advancedFinancialEntitled?Number(x.revenue||0):null})),
+      recent:recent.rows.map((x)=>({id:x.id,client:x.client,type:x.type,status:x.status,date:x.date,value:basicFinancialEntitled?Number(x.value||0):null,technician:x.technician||null}))
+    });
   } catch (error) { console.error('Dashboard summary error:',error); res.status(500).json({error:'Erro ao carregar indicadores administrativos'}); }
 });
 
