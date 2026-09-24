@@ -16,7 +16,7 @@ A consulta de schema remoto pelo conector Neon falhou: sua interface omite proje
 - A autorização consulta o horário do banco a cada chamada. Na expiração usa o plano contratado, sem exclusão de dados ou job agendado.
 - Trial não cria subscriptions nem payments. Métricas de plano usam plan_key contratado; MRR continua baseado em subscriptions ativas.
 - Banner informa dias arredondados para cima e destaca escolha de plano nos últimos três dias. Consulta novamente a cada minuto e ao voltar à janela; mudanças de acesso atualizam a navegação e o dashboard.
-- Backoffice permite +7 dias a partir do fim atual (ou de agora se expirado), ou encerramento imediato. Trial encerrado manualmente não pode ser reaberto. Contas sem trial não podem receber um por esses endpoints.
+- Backoffice permite +7 dias a partir do fim atual (ou de agora se expirado), ou encerramento imediato. A ação manual “Ativar trial Business por 14 dias” pode iniciar ou reiniciar uma degustação de qualquer conta Essencial/Pro sem trial ativo, incluindo contas antigas e trials encerrados. Essa é uma exceção administrativa à oferta automática única, registrada em auditoria. Não altera plano contratado, assinatura, cobrança ou MRR. Tentativas repetidas durante um trial ativo são rejeitadas; use a extensão de +7 dias.
 - Datas e eventos de trial ficam separados dos eventos financeiros. Todas as mutações exigem sessão do Backoffice e CSRF.
 
 ## Acesso ao Backoffice

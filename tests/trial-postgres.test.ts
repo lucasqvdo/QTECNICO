@@ -123,7 +123,7 @@ test('PostgreSQL: registration, trial lifecycle, billing separation and Backoffi
       }
       await db.query("UPDATE accounts SET plan_key='essential' WHERE id=$1",[newUser.accountId]);
     });
-    await t.test('expired trial can be extended; explicitly ended trial cannot restart',async()=>{
+    await t.test('expired trial can be extended; explicitly ended trial requires manual activation',async()=>{
       const path=`/backoffice/account/${newUser.accountId}/trial`;
       assert.equal((await post(path,{action:'extend'})).status,200);
       assert.equal((await getAccountEntitlements(newUser.accountId)).trial.daysRemaining,7);
@@ -134,6 +134,44 @@ test('PostgreSQL: registration, trial lifecycle, billing separation and Backoffi
       assert.equal((await db.query('SELECT * FROM account_trial_events WHERE actor_user_id=1')).rows.length,3);
       await grantRegistrationTrial({query},newUser.accountId,'CHANGED_DOCUMENT');
       assert.equal((await getAccountEntitlements(newUser.accountId)).trial.status,'ended');
+    });
+    await t.test('manual trial starts on existing Essential/Pro accounts and preserves billing',async()=>{
+      await db.query("INSERT INTO subscriptions (account_id,plan_key,status,amount) VALUES (2,'pro','active',99.90)");
+      for (const [accountId,key] of [[1,'essential'],[2,'pro']] as const) {
+        const before=(await db.query('SELECT plan_key,subscription_status,current_period_end FROM accounts WHERE id=$1',[accountId])).rows[0];
+        const response=await post(`/backoffice/account/${accountId}/trial`,{action:'start'});
+        assert.equal(response.status,200,JSON.stringify(await response.json()));
+        const access=await getAccountEntitlements(accountId);
+        assert.equal(access.planKey,'business'); assert.equal(access.contractedPlanKey,key);
+        assert.equal(access.trial.daysRemaining,14);
+        assert.equal(new Date(access.trial.endsAt).getTime()-new Date(access.trial.startedAt).getTime(),14*86400000);
+        assert.deepEqual((await db.query('SELECT plan_key,subscription_status,current_period_end FROM accounts WHERE id=$1',[accountId])).rows[0],before);
+        assert.equal((await post(`/backoffice/account/${accountId}/trial`,{action:'start'})).status,409);
+        assert.equal(new Date((await getAccountEntitlements(accountId)).trial.startedAt).getTime(),new Date(access.trial.startedAt).getTime());
+      }
+      const summary=await (await fetch(url+'/dashboard/backoffice-summary',{headers:ownerHeaders})).json();
+      assert.equal(summary.metrics.mrr,99.90);
+      const subscriptions=(await db.query<any>('SELECT plan_key,amount FROM subscriptions')).rows;
+      assert.equal(subscriptions.length,1); assert.equal(subscriptions[0].plan_key,'pro');
+      assert.equal((await db.query("SELECT * FROM account_trial_events WHERE action='start' AND actor_user_id=1")).rows.length,2);
+    });
+    await t.test('manual activation rejects Business and unauthorized requests but can renew an ended trial',async()=>{
+      const path=`/backoffice/account/${newUser.accountId}/trial`;
+      assert.equal((await post(path,{action:'start'},{'Content-Type':'application/json'})).status,401);
+      assert.equal((await post(path,{action:'start'},tenantHeaders)).status,403);
+      assert.equal((await post(path,{action:'start'},{...ownerHeaders,'X-CSRF-Token':''})).status,403);
+      await db.query("UPDATE accounts SET plan_key='business' WHERE id=$1",[newUser.accountId]);
+      assert.equal((await post(path,{action:'start'})).status,409);
+      assert.equal((await getAccountEntitlements(newUser.accountId)).trial.status,'ended');
+      await db.query("UPDATE accounts SET plan_key='essential' WHERE id=$1",[newUser.accountId]);
+      assert.equal((await post(path,{action:'start'})).status,200);
+      const access=await getAccountEntitlements(newUser.accountId);
+      assert.equal(access.trial.status,'active'); assert.equal(access.trial.daysRemaining,14);
+      assert.equal(access.contractedPlanKey,'essential');
+      assert.equal((await post('/backoffice/account/99999/trial',{action:'start'})).status,404);
+      await db.query("UPDATE accounts SET trial_ends_at=NOW() - INTERVAL '1 second' WHERE id=$1",[newUser.accountId]);
+      assert.equal((await post(path,{action:'start'})).status,200);
+      assert.equal((await getAccountEntitlements(newUser.accountId)).trial.daysRemaining,14);
     });
     await t.test('only owner can add/remove collaborators; removal invalidates existing Backoffice access',async()=>{
       assert.equal((await post('/backoffice/collaborators',{email:'collaborator@example.test',action:'add'},tenantHeaders)).status,403);

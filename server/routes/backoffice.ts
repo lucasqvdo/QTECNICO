@@ -1,4 +1,5 @@
-import { trialInfo } from '../trial.js';
+import { createHash } from 'node:crypto';
+import { trialInfo, normalizeCompanyDocument } from '../trial.js';
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireBackofficeAuth, getBackofficeRole } from '../backofficeAuth.js';
@@ -75,19 +76,37 @@ router.get('/account/:id',requireBackofficeAuth,async(req,res)=>{
 router.post('/account/:id/trial', requireBackofficeAuth, async (req, res) => {
   const accountId = Number(req.params.id);
   const action = req.body?.action;
-  if (!Number.isSafeInteger(accountId) || accountId <= 0 || !['extend', 'end'].includes(action)) {
+  if (!Number.isSafeInteger(accountId) || accountId <= 0 || !['start', 'extend', 'end'].includes(action)) {
     return res.status(400).json({ error: 'Conta ou ação inválida.' });
   }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const before = (await client.query('SELECT trial_started_at,trial_ends_at,trial_plan_key,trial_ended_at FROM accounts WHERE id=$1 FOR UPDATE', [accountId])).rows[0];
+    const before = (await client.query('SELECT plan_key,trial_started_at,trial_ends_at,trial_plan_key,trial_ended_at FROM accounts WHERE id=$1 FOR UPDATE', [accountId])).rows[0];
     if (!before) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Conta não encontrada.' }); }
-    if (!before.trial_started_at || before.trial_plan_key !== 'business' || before.trial_ended_at) {
+    if (action === 'start') {
+      if (!['essential', 'pro'].includes(before.plan_key)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'A ativação de trial está disponível para empresas Essencial ou Pro.' });
+      }
+      const active = (await client.query(`SELECT 1 FROM accounts WHERE id=$1
+        AND trial_plan_key='business' AND trial_started_at<=NOW() AND trial_ends_at>NOW() AND trial_ended_at IS NULL`, [accountId])).rows.length > 0;
+      if (active) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Esta empresa já tem um trial ativo. Use Estender +7 dias.' });
+      }
+      // Manual grants are an explicit Backoffice exception to the one-time registration offer.
+      const profile = (await client.query('SELECT document FROM company_profiles WHERE account_id=$1', [accountId])).rows[0];
+      const document = normalizeCompanyDocument(String(profile?.document || ''));
+      if (document) await client.query(`INSERT INTO company_trial_claims (document_hash) VALUES ($1)
+        ON CONFLICT DO NOTHING`, [createHash('sha256').update(document).digest('hex')]);
+    } else if (!before.trial_started_at || before.trial_plan_key !== 'business' || before.trial_ended_at) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'Esta conta não tem um trial que possa ser alterado.' });
     }
-    const result = await client.query(action === 'extend'
+    const result = await client.query(action === 'start'
+      ? `UPDATE accounts SET trial_started_at=NOW(),trial_ends_at=NOW() + INTERVAL '14 days',trial_plan_key='business',trial_ended_at=NULL WHERE id=$1 RETURNING trial_started_at,trial_ends_at,trial_plan_key,trial_ended_at`
+      : action === 'extend'
       ? `UPDATE accounts SET trial_ends_at=GREATEST(trial_ends_at,NOW()) + INTERVAL '7 days' WHERE id=$1 RETURNING trial_started_at,trial_ends_at,trial_plan_key,trial_ended_at`
       : `UPDATE accounts SET trial_ends_at=LEAST(trial_ends_at,NOW()),trial_ended_at=NOW() WHERE id=$1 RETURNING trial_started_at,trial_ends_at,trial_plan_key,trial_ended_at`, [accountId]);
     await client.query(`INSERT INTO account_trial_events (account_id,actor_user_id,action,before_state,after_state)
