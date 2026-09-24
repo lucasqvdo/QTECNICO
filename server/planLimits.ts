@@ -18,8 +18,7 @@ export async function getAccountContext(userId: number): Promise<AccountContext 
   if (rows.length === 0) return null;
 
   const row = rows[0];
-  const effectivePlanKey = row.subscription_status === 'active' ? row.plan_key : 'free';
-  return { accountId: row.account_id, plan: getPlan(effectivePlanKey) };
+  return { accountId: row.account_id, plan: getPlan(row.plan_key) };
 }
 
 /** Limite mensal compartilhado por todos os usuários da mesma empresa. */
@@ -41,13 +40,11 @@ export function enforceOrderLimit() {
     );
     const usedThisMonth = rows[0].count as number;
 
+    // Limite de OS é soft/fair-use: nunca bloqueia uma OS urgente.
+    // O consumo é exposto para a interface e registrado para acompanhamento.
+    res.locals.orderUsage = { used: usedThisMonth, limit, percent: Math.round((usedThisMonth / limit) * 100) };
     if (usedThisMonth >= limit) {
-      return res.status(402).json({
-        error: `Limite do plano ${ctx.plan.name} atingido (${limit} ordens/mês). Faça upgrade para continuar.`,
-        code: 'PLAN_LIMIT_ORDERS',
-        plan: ctx.plan.key,
-        limit,
-      });
+      console.warn(`⚠️ Conta ${ctx.accountId} excedeu fair-use de OS do plano ${ctx.plan.key}: ${usedThisMonth}/${limit}`);
     }
     next();
   };
