@@ -7,6 +7,14 @@ import { getDownloadUrl } from '../storage.js';
 const router = Router();
 const MIN_PASSWORD_LENGTH = 8;
 
+const PLAN_USER_LIMITS: Record<string, number> = { essential: 2, pro: 10, business: 30, light: 2, medium: 10, power: 10 };
+
+async function getAccountEntitlements(accountId: number) {
+  const result = await pool.query(`SELECT COALESCE(s.plan_key,a.plan_key,'essential') AS plan_key, COALESCE(sp.features,'[]'::jsonb) AS features, COALESCE(sp.limits,'{}'::jsonb) AS limits FROM accounts a LEFT JOIN LATERAL (SELECT plan_key FROM subscriptions WHERE account_id=a.id ORDER BY created_at DESC LIMIT 1) s ON TRUE LEFT JOIN saas_plans sp ON sp.plan_key=COALESCE(s.plan_key,a.plan_key) WHERE a.id=$1`, [accountId]);
+  const row = result.rows[0] || {}; const key = String(row.plan_key || 'essential'); const limits = row.limits && typeof row.limits === 'object' ? row.limits : {};
+  return { planKey: key, features: Array.isArray(row.features) ? row.features : [], limits: { ...limits, maxUsers: Number(limits.maxUsers || limits.max_users || PLAN_USER_LIMITS[key] || 2) } };
+}
+
 async function getAdminAccountId(userId: number) {
   const result = await pool.query(`SELECT account_id FROM users WHERE id = $1 AND is_admin = TRUE`, [userId]);
   return result.rows[0]?.account_id as number | undefined;
@@ -51,7 +59,10 @@ router.get('/company-profile', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/admin/access', requireAdmin, async (_req, res) => res.json({ allowed: true }));
+router.get('/admin/access', requireAdmin, async (req, res) => {
+  try { const accountId = await getAdminAccountId(req.userId); if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' }); const entitlements = await getAccountEntitlements(accountId); res.json({ allowed: true, ...entitlements }); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao carregar permissões do plano' }); }
+});
 
 router.get('/admin/company-profile', requireAdmin, async (req, res) => {
   try {
@@ -98,6 +109,9 @@ router.post('/admin/team', requireAdmin, async (req, res) => {
   try {
     const accountId = await getAdminAccountId(req.userId);
     if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
+    const entitlements = await getAccountEntitlements(accountId);
+    const userCount = Number((await pool.query('SELECT COUNT(*)::int AS count FROM users WHERE account_id = $1', [accountId])).rows[0]?.count || 0);
+    if (userCount >= entitlements.limits.maxUsers) return res.status(403).json({ error: `Seu plano permite até ${entitlements.limits.maxUsers} usuários. Faça upgrade para adicionar mais acessos.`, code: 'PLAN_USER_LIMIT', planKey: entitlements.planKey, limit: entitlements.limits.maxUsers });
     const exists = await pool.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     if (exists.rows.length) return res.status(409).json({ error: 'E-mail já cadastrado' });
     const hash = await bcrypt.hash(password, 10);
