@@ -94,7 +94,7 @@ router.post('/register', authRateLimit, async (req, res) => {
     `);
     const exists = await client.query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
     if (exists.rows.length > 0) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'E-mail já cadastrado' }); }
-    const accountResult = await client.query(`INSERT INTO accounts (owner_user_id, plan_key, subscription_status) VALUES (NULL, 'free', 'active') RETURNING id`);
+    const accountResult = await client.query(`INSERT INTO accounts (owner_user_id, plan_key, subscription_status) VALUES (NULL, 'essential', 'active') RETURNING id`);
     const accountId = accountResult.rows[0].id;
     const hash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
