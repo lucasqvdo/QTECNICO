@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { ArrowLeft, Download, FileText, MapPin, Phone, Calendar, Plus, Trash2, Pencil, Play, Square, CheckCircle2, Image, X, PenLine } from "lucide-react";
 import { STATUS_CONFIG, PRIORITY_CONFIG, fmt, fmtDuration, fmtDateTime } from "../config";
-import { InfoRow, ActionBtn, FinCard } from "./ui/SharedComponents";
+import { InfoRow, FinCard } from "./ui/SharedComponents";
 import { exportClientPDF, exportAdminPDF } from "../exportPDF";
 import { api } from "../api";
-import type { ServiceOrder, Client, Attendance, AttendancePhoto, Payment } from "../types";
+import type { ServiceOrder, Client, Attendance, AttendancePhoto, Payment, OrderStatus } from "../types";
 
 /* ─── Signature Pad ──────────────────────────────────────────── */
 
@@ -249,6 +249,8 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
   const [showSigPad, setShowSigPad] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [addingPhotoToAttendance, setAddingPhotoToAttendance] = useState<string | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState("");
 
   useEffect(() => {
     if (!timerActive || !timerStart) return;
@@ -337,6 +339,20 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
     onUpdate({ ...order, clientValue: isNaN(val) ? 0 : val });
   };
 
+  const quickStatusChange = async (nextStatus: OrderStatus) => {
+    if (nextStatus === order.status) return;
+    setStatusSaving(true);
+    setStatusError("");
+    try {
+      const saved = await api.updateOrder(order.id, { status: nextStatus }, order);
+      onUpdate(saved);
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Não foi possível alterar o status da OS.");
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
   return (
     <div className="absolute inset-0 bg-background z-20 flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="bg-primary text-primary-foreground px-4 pt-10 pb-4 flex-shrink-0">
@@ -351,7 +367,7 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
-        <div className="flex gap-2 flex-wrap"><span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ color: status.color, background: status.bg }}>{status.icon} {status.label}</span><span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-secondary text-foreground"><span className="w-2 h-2 rounded-full" style={{ background: priority.color }} /> Prioridade {priority.label}</span></div>
+        <div className="flex gap-2 flex-wrap items-center"><label className="inline-flex items-center gap-2 rounded-xl px-2 py-1" style={{ background: status.bg }}><span className="text-xs font-semibold" style={{ color: status.color }}>{status.icon}</span><select aria-label="Status da ordem de serviço" value={order.status} disabled={statusSaving} onChange={e => void quickStatusChange(e.target.value as OrderStatus)} className="bg-transparent text-xs font-semibold outline-none disabled:cursor-wait disabled:opacity-60" style={{ color: status.color }}>{Object.entries(STATUS_CONFIG).map(([key,meta]) => <option key={key} value={key}>{meta.label}</option>)}</select></label><span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-secondary text-foreground"><span className="w-2 h-2 rounded-full" style={{ background: priority.color }} /> Prioridade {priority.label}</span>{statusSaving && <span className="text-xs text-muted-foreground">Salvando status...</span>}</div>{statusError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{statusError}</div>}
 
         <div className="bg-card border border-border rounded-2xl p-4 space-y-3"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Cliente</h3><p className="font-semibold text-foreground">{order.client}</p>{client && <p className="text-xs text-muted-foreground font-mono">{client.document}</p>}<div className="space-y-2"><InfoRow icon={<MapPin size={13} />} text={order.address} /><InfoRow icon={<Phone size={13} />} text={order.phone} /><InfoRow icon={<Calendar size={13} />} text={dateStr} /></div></div>
 
@@ -369,7 +385,6 @@ export function OrderDetail({ order, client, techName, onClose, onUpdate }: {
         <div className="bg-card border border-border rounded-2xl p-4 space-y-4"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Financeiro</h3><div className="grid grid-cols-3 gap-2"><FinCard label="Receita" value={order.clientValue} valueColor="var(--primary)" /><FinCard label="Custos" value={totalExp} valueColor="#D97706" /><FinCard label="Margem" value={margem} valueColor={margem >= 0 ? "#15803D" : "#B91C1C"} sub={`${margemPct}%`} /></div>{order.clientValue > 0 && <div><div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Custo / Receita</span><span>{((totalExp / order.clientValue) * 100).toFixed(1)}%</span></div><div className="h-2 rounded-full bg-secondary overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (totalExp / order.clientValue) * 100)}%`, background: totalExp > order.clientValue ? "#EF4444" : "var(--accent)" }} /></div></div>}<div><label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Valor do cliente (R$)</label><input type="number" defaultValue={order.clientValue || ""} onBlur={e => updateClientValue(e.target.value)} placeholder="0,00" className="w-full px-4 py-2.5 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div><div><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Despesas</p>{order.expenses.length === 0 ? <p className="text-xs text-muted-foreground italic py-1">Nenhuma despesa registrada.</p> : <div className="space-y-2">{order.expenses.map(exp => <div key={exp.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0"><span className="flex-1 text-sm text-foreground truncate">{exp.label}</span><span className="text-sm font-semibold font-mono flex-shrink-0">{fmt(exp.amount)}</span><button onClick={() => editExpense(exp.id)} className="p-1 rounded-lg hover:bg-cyan-50 transition-colors" aria-label="Editar despesa"><Pencil size={13} className="text-primary" /></button><button onClick={() => removeExpense(exp.id)} className="p-1 rounded-lg hover:bg-red-50 transition-colors" aria-label="Excluir despesa"><Trash2 size={13} className="text-destructive" /></button></div>)}<div className="flex justify-between pt-1"><span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total</span><span className="text-sm font-bold" style={{ color: "var(--primary)" }}>{fmt(totalExp)}</span></div></div>}<div className="border border-dashed border-border rounded-xl p-3 space-y-2 mt-3">{editingExpenseId && <button onClick={() => { setEditingExpenseId(null); setNewExpLabel(""); setNewExpAmt(""); }} className="text-xs font-semibold text-muted-foreground hover:text-foreground">Cancelar edição</button>}<div className="flex gap-2"><input value={newExpLabel} onChange={e => setNewExpLabel(e.target.value)} placeholder="Descrição" className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" onKeyDown={e => e.key === "Enter" && addExpense()} /><input value={newExpAmt} onChange={e => setNewExpAmt(e.target.value)} placeholder="R$ 0,00" type="number" className="w-24 px-3 py-2 rounded-xl bg-secondary text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/20" onKeyDown={e => e.key === "Enter" && addExpense()} /></div><button onClick={addExpense} className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95" style={{ background: "var(--secondary)", color: "var(--primary)" }}><Plus size={13} /> {editingExpenseId ? "Salvar alteração" : "Adicionar despesa"}</button></div></div></div>
 
         <PaymentsCard order={order} onUpdate={onUpdate} />
-        {order.status !== "completed" && order.status !== "cancelled" && <div className="bg-card border border-border rounded-2xl p-4"><h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Alterar status</h3><div className="flex gap-2 flex-wrap">{order.status === "pending" && <ActionBtn label="Iniciar" color="#1D4ED8" bg="#DBEAFE" onClick={() => onUpdate({ ...order, status: "in_progress" })} />}{order.status === "in_progress" && <ActionBtn label="Concluir" color="#15803D" bg="#DCFCE7" onClick={() => onUpdate({ ...order, status: "completed" })} />}<ActionBtn label="Cancelar" color="#B91C1C" bg="#FEE2E2" onClick={() => onUpdate({ ...order, status: "cancelled" })} /></div></div>}
       </div>
       <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={addPhoto} />
     </div>
