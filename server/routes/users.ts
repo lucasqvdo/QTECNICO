@@ -14,7 +14,12 @@ async function getAccountEntitlements(accountId: number) {
   const key = String(result.rows[0]?.plan_key || 'essential');
   const plan = (await pool.query(`SELECT features,limits FROM saas_plans WHERE plan_key=$1 LIMIT 1`, [key])).rows[0] || {};
   const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
-  return { planKey: key, features: Array.isArray(plan.features) ? plan.features : [], limits: { ...limits, maxUsers: Number(limits.maxUsers || limits.max_users || PLAN_USER_LIMITS[key] || 2) } };
+  const ordersPerMonth = Number(limits.ordersPerMonth || limits.maxOrdersPerMonth || 0) || null;
+  let ordersUsedThisMonth = 0;
+  if (ordersPerMonth) {
+    ordersUsedThisMonth = Number((await pool.query(`SELECT COUNT(*)::int AS count FROM orders WHERE account_id=$1 AND date_trunc('month',created_at)=date_trunc('month',NOW())`,[accountId])).rows[0]?.count || 0);
+  }
+  return { planKey:key, features:Array.isArray(plan.features)?plan.features:[], limits:{...limits,maxUsers:Number(limits.maxUsers||limits.max_users||PLAN_USER_LIMITS[key]||2),ordersPerMonth,ordersUsedThisMonth,ordersUsagePercent:ordersPerMonth?Math.round((ordersUsedThisMonth/ordersPerMonth)*100):0} };
 }
 
 async function getAdminAccountId(userId: number) {
