@@ -1,17 +1,11 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
+import { hasAccountFeature } from '../plans.js';
 import { requireAdmin } from '../auth.js';
 import { createBackofficeSession, requireBackofficeAuth, revokeBackofficeSession, isPlatformAdmin } from '../backofficeAuth.js';
 
 const router = Router();
-
-async function hasAccountFeature(accountId: number, feature: string) {
-  const result = await pool.query(`SELECT COALESCE(s.plan_key,a.plan_key,'essential') AS plan_key FROM accounts a LEFT JOIN LATERAL (SELECT plan_key FROM subscriptions WHERE account_id=a.id ORDER BY created_at DESC LIMIT 1) s ON TRUE WHERE a.id=$1`,[accountId]);
-  const key=String(result.rows[0]?.plan_key||'essential');
-  const plan=await pool.query(`SELECT features FROM saas_plans WHERE plan_key=$1 LIMIT 1`,[key]);
-  return Array.isArray(plan.rows[0]?.features) && plan.rows[0].features.includes(feature);
-}
 
 function getStartDate(days: unknown) {
   const value = String(days ?? 'all');

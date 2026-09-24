@@ -1,26 +1,12 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
+import { getAccountEntitlements } from '../plans.js';
 import { requireAuth, requireAdmin } from '../auth.js';
 import { getDownloadUrl } from '../storage.js';
 
 const router = Router();
 const MIN_PASSWORD_LENGTH = 8;
-
-const PLAN_USER_LIMITS: Record<string, number> = { essential: 2, pro: 10, business: 30 };
-
-async function getAccountEntitlements(accountId: number) {
-  const result = await pool.query(`SELECT COALESCE(s.plan_key,a.plan_key,'essential') AS plan_key FROM accounts a LEFT JOIN LATERAL (SELECT plan_key FROM subscriptions WHERE account_id=a.id ORDER BY created_at DESC LIMIT 1) s ON TRUE WHERE a.id=$1`, [accountId]);
-  const key = String(result.rows[0]?.plan_key || 'essential');
-  const plan = (await pool.query(`SELECT features,limits FROM saas_plans WHERE plan_key=$1 LIMIT 1`, [key])).rows[0] || {};
-  const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
-  const ordersPerMonth = Number(limits.ordersPerMonth || limits.maxOrdersPerMonth || 0) || null;
-  let ordersUsedThisMonth = 0;
-  if (ordersPerMonth) {
-    ordersUsedThisMonth = Number((await pool.query(`SELECT COUNT(*)::int AS count FROM orders WHERE account_id=$1 AND date_trunc('month',created_at)=date_trunc('month',NOW())`,[accountId])).rows[0]?.count || 0);
-  }
-  return { planKey:key, features:Array.isArray(plan.features)?plan.features:[], limits:{...limits,maxUsers:Number(limits.maxUsers||limits.max_users||PLAN_USER_LIMITS[key]||2),ordersPerMonth,ordersUsedThisMonth,ordersUsagePercent:ordersPerMonth?Math.round((ordersUsedThisMonth/ordersPerMonth)*100):0} };
-}
 
 async function getAdminAccountId(userId: number) {
   const result = await pool.query(`SELECT account_id FROM users WHERE id = $1 AND is_admin = TRUE`, [userId]);

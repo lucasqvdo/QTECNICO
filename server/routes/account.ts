@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { pool } from '../db.js';
+import { getMonthlyOrderUsage } from '../plans.js';
 import { requireAuth } from '../auth.js';
 import { getAccountContext } from '../planLimits.js';
 
@@ -10,26 +10,29 @@ router.get('/', requireAuth, async (req, res) => {
   const ctx = await getAccountContext(userId);
   if (!ctx) return res.status(404).json({ error: 'Conta não encontrada' });
 
-  let ordersThisMonth = 0;
-  if (ctx.plan.limits.maxOrdersPerMonth !== null) {
-    const { rows } = await pool.query(
-      `SELECT COUNT(*)::int as count
-       FROM orders o
-       WHERE o.account_id = $1
-         AND date_trunc('month', o.created_at) = date_trunc('month', NOW())`,
-      [ctx.accountId]
-    );
-    ordersThisMonth = rows[0].count;
-  }
+  const usage = await getMonthlyOrderUsage(ctx.accountId, ctx.plan.limits.ordersPerMonth);
+  const hasFeature = (feature: string) => ctx.plan.features.includes(feature);
 
   res.json({
     plan: ctx.plan.key,
     planName: ctx.plan.name,
-    limits: ctx.plan.limits,
-    features: ctx.plan.features,
+    // Mantém o contrato legado deste endpoint, derivado do catálogo atual.
+    limits: {
+      maxOrdersPerMonth: ctx.plan.limits.ordersPerMonth,
+      maxPhotosPerAttendance: ctx.plan.limits.maxPhotosPerAttendance,
+      maxUsers: ctx.plan.limits.maxUsers,
+    },
+    features: {
+      financialReports: hasFeature('reports'),
+      pdfExport: hasFeature('pdf'),
+      clientNotifications: hasFeature('clientNotifications'),
+      multiUser: ctx.plan.limits.maxUsers > 1,
+      api: hasFeature('integrations'),
+      whiteLabel: hasFeature('whiteLabel'),
+    },
     usage: {
-      ordersThisMonth,
-      ordersLimit: ctx.plan.limits.maxOrdersPerMonth,
+      ordersThisMonth: usage.used,
+      ordersLimit: usage.limit,
     },
   });
 });

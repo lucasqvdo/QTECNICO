@@ -62,7 +62,7 @@ router.post('/account/:id/action',requireBackofficeAuth,async(req,res)=>{
     } else if(action==='manual_payment'){
       const amount=Number(req.body?.amount); if(!Number.isFinite(amount)||amount<0) throw new Error('Valor de pagamento inválido.'); const paidAt=req.body?.paidAt?new Date(String(req.body.paidAt)):new Date(); if(Number.isNaN(paidAt.getTime())) throw new Error('Data de pagamento inválida.');
       await client.query(`INSERT INTO subscription_payments (subscription_id,account_id,amount,currency,status,paid_at,provider,metadata) VALUES ($1,$2,$3,$4,'paid',$5,'manual',$6)`,[subscriptionId,accountId,amount,before.subscription_currency||'BRL',paidAt,JSON.stringify({actorUserId:actor,source:'backoffice'})]);
-      await client.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1`,[subscriptionId]); await client.query(`UPDATE accounts SET subscription_status='active' WHERE id=$1`,[accountId]);
+      await client.query(`UPDATE subscriptions SET status='active',updated_at=NOW() WHERE id=$1`,[subscriptionId]); await client.query(`UPDATE accounts SET subscription_status='active',plan_key=(SELECT plan_key FROM subscriptions WHERE id=$1 AND account_id=$2) WHERE id=$2`,[subscriptionId,accountId]);
     }
     const after=await client.query(`SELECT plan_key,subscription_status,current_period_end FROM accounts WHERE id=$1`,[accountId]);
     await client.query(`INSERT INTO subscription_events (account_id,subscription_id,event_type,actor_user_id,source,payload) VALUES ($1,$2,$3,$4,'backoffice',$5)`,[accountId,subscriptionId,`backoffice_${action}`,actor,JSON.stringify({before:{planKey:before.plan_key,status:before.subscription_status,periodEnd:before.current_period_end},after:after.rows[0]||null,request:req.body||{}})]);
