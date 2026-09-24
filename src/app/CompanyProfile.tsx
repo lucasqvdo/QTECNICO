@@ -36,12 +36,14 @@ export default function CompanyProfile({ onBack }: Props) {
   const [form, setForm] = useState<CompanyProfileData>(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [profileMissing, setProfileMissing] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
         const profile = await api.getCompanyProfile();
         if (profile) setForm({ ...empty, ...profile });
+        setProfileMissing(profile === null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Não foi possível carregar o perfil da empresa.');
       } finally {
@@ -73,7 +75,12 @@ export default function CompanyProfile({ onBack }: Props) {
         </div>
       </div>
 
-      <div className="space-y-5">
+      {profileMissing ? (
+        <div role="status" className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+          <p className="font-semibold text-slate-900">Perfil da empresa ainda não cadastrado</p>
+          <p className="mt-1">Entre em contato com o suporte do QTECNICO para completar o cadastro da empresa.</p>
+        </div>
+      ) : <div className="space-y-5">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="font-bold">Dados da empresa</h2><p className="mb-5 text-xs text-slate-500">Informações cadastradas no primeiro acesso.</p>
           <div className="grid gap-4 md:grid-cols-2">
@@ -101,7 +108,7 @@ export default function CompanyProfile({ onBack }: Props) {
             <Field label="UF" value={form.state} placeholder="SP" />
           </div>
         </section>
-      </div>
+      </div>}
     </div>
   );
 }
