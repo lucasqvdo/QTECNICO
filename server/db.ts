@@ -161,6 +161,21 @@ async function reconcileMultiTenantSchema() {
   console.log('✅ Schema multiempresa reconciliado');
 }
 
+async function reconcilePlanCatalog() {
+  const tableCheck = await pool.query(`SELECT to_regclass('public.saas_plans') AS table_name`);
+  if (!tableCheck.rows[0]?.table_name) return;
+  const plans = [
+    ['essential','Essencial','Para profissionais e pequenas operações.',49.90,['orders','clients','agenda','offline','photos','signature','pdf','orderCosts','orderPayments'],{includedUsers:2,maxUsers:2,ordersPerMonth:50,additionalUserPrice:null}],
+    ['pro','Pro','Para equipes que precisam controlar a operação e acompanhar resultados.',99.90,['orders','clients','agenda','offline','photos','signature','pdf','orderCosts','orderPayments','consolidatedFinance','financialIndicators','technicianPerformance','reports'],{includedUsers:5,maxUsers:10,ordersPerMonth:250,additionalUserPrice:12.90}],
+    ['business','Business','Para operações estruturadas que precisam de controle e escala.',199.90,['orders','clients','agenda','offline','photos','signature','pdf','orderCosts','orderPayments','consolidatedFinance','financialIndicators','technicianPerformance','reports','advancedReports','customPermissions','auditLog','integrations','automations','prioritySupport'],{includedUsers:10,maxUsers:30,ordersPerMonth:1000,additionalUserPrice:9.90}],
+  ] as const;
+  for (const [key,name,description,amount,features,limits] of plans) {
+    await pool.query(`INSERT INTO saas_plans (plan_key,name,description,amount,currency,billing_interval,active,features,limits) VALUES ($1,$2,$3,$4,'BRL','month',TRUE,$5::jsonb,$6::jsonb) ON CONFLICT (plan_key) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,amount=EXCLUDED.amount,currency=EXCLUDED.currency,billing_interval=EXCLUDED.billing_interval,active=TRUE,features=EXCLUDED.features,limits=EXCLUDED.limits,updated_at=NOW()`,[key,name,description,amount,JSON.stringify(features),JSON.stringify(limits)]);
+  }
+  await pool.query(`UPDATE saas_plans SET active=FALSE,updated_at=NOW() WHERE plan_key IN ('light','medium','power','professional','enterprise')`);
+  console.log('✅ Catálogo de planos reconciliado');
+}
+
 export async function initDbSchema() {
   if (useMockDb) {
     console.warn('⚠️ USE_MOCK_DB=true — usando banco de dados em memória. Não usar em produção.');
@@ -175,4 +190,5 @@ export async function initDbSchema() {
 
   await reconcileWebAuthnSchema();
   await reconcileMultiTenantSchema();
+  await reconcilePlanCatalog();
 }
