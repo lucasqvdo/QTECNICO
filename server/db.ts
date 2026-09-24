@@ -172,8 +172,11 @@ async function reconcilePlanCatalog() {
   for (const [key,name,description,amount,features,limits] of plans) {
     await pool.query(`INSERT INTO saas_plans (plan_key,name,description,amount,currency,billing_interval,active,features,limits) VALUES ($1,$2,$3,$4,'BRL','month',TRUE,$5::jsonb,$6::jsonb) ON CONFLICT (plan_key) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,amount=EXCLUDED.amount,currency=EXCLUDED.currency,billing_interval=EXCLUDED.billing_interval,active=TRUE,features=EXCLUDED.features,limits=EXCLUDED.limits,updated_at=NOW()`,[key,name,description,amount,JSON.stringify(features),JSON.stringify(limits)]);
   }
-  await pool.query(`UPDATE saas_plans SET active=FALSE,updated_at=NOW() WHERE plan_key IN ('light','medium','power','professional','enterprise')`);
-  console.log('✅ Catálogo de planos reconciliado');
+  const legacyKeys = ['free','light','medium','power','professional','enterprise'];
+  await pool.query(`UPDATE accounts SET plan_key='essential' WHERE plan_key = ANY($1::text[])`, [legacyKeys]);
+  await pool.query(`UPDATE subscriptions SET plan_key='essential',updated_at=NOW() WHERE plan_key = ANY($1::text[])`, [legacyKeys]);
+  await pool.query(`DELETE FROM saas_plans WHERE plan_key = ANY($1::text[])`, [legacyKeys]);
+  console.log('✅ Catálogo de planos reconciliado: somente essential, pro e business');
 }
 
 export async function initDbSchema() {
