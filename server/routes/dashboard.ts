@@ -6,6 +6,13 @@ import { createBackofficeSession, requireBackofficeAuth, revokeBackofficeSession
 
 const router = Router();
 
+async function hasAccountFeature(accountId: number, feature: string) {
+  const result = await pool.query(`SELECT COALESCE(s.plan_key,a.plan_key,'essential') AS plan_key FROM accounts a LEFT JOIN LATERAL (SELECT plan_key FROM subscriptions WHERE account_id=a.id ORDER BY created_at DESC LIMIT 1) s ON TRUE WHERE a.id=$1`,[accountId]);
+  const key=String(result.rows[0]?.plan_key||'essential');
+  const plan=await pool.query(`SELECT features FROM saas_plans WHERE plan_key=$1 LIMIT 1`,[key]);
+  return Array.isArray(plan.rows[0]?.features) && plan.rows[0].features.includes(feature);
+}
+
 function getStartDate(days: unknown) {
   const value = String(days ?? 'all');
   if (!['7', '30', '90', 'all'].includes(value)) return null;
@@ -37,6 +44,7 @@ router.get('/summary', requireAdmin, async (req, res) => {
     const userResult = await pool.query('SELECT account_id FROM users WHERE id = $1 AND is_admin = TRUE', [req.userId]);
     const accountId = userResult.rows[0]?.account_id;
     if (!accountId) return res.status(403).json({ error: 'Acesso administrativo não autorizado' });
+    const financialEntitled = await hasAccountFeature(accountId, 'financialIndicators');
     const startDate = getStartDate(req.query.days);
     const dateParams = startDate ? [accountId, startDate] : [accountId];
     const dateClause = startDate ? 'AND o.created_at >= $2' : '';
@@ -49,7 +57,7 @@ router.get('/summary', requireAdmin, async (req, res) => {
       pool.query(`SELECT o.id,o.client_name AS client,o.type,o.status,o.date,o.client_value::numeric AS value,o.assigned_technician_name AS technician FROM orders o WHERE o.account_id=$1 ${dateClause} ORDER BY o.created_at DESC LIMIT 8`, dateParams),
     ]);
     const row = stats.rows[0] || {}; const revenue=Number(row.revenue||0); const costs=Number(row.costs||0);
-    res.json({ period:startDate?String(req.query.days):'all', stats:{ total:Number(row.total||0), pending:Number(row.pending||0), inProgress:Number(row.in_progress||0), completed:Number(row.completed||0), cancelled:Number(row.cancelled||0), revenue, paid:Number(row.paid||0), costs, margin:revenue-costs, clients:Number(clients.rows[0]?.total||0), newClients:Number(clients.rows[0]?.new_this_month||0) }, monthly:monthly.rows.reverse().map((x)=>({month:x.month,revenue:Number(x.revenue||0),orders:Number(x.orders||0)})), technicians:technicians.rows.map((x)=>({id:x.id,name:x.name,orders:Number(x.orders||0),completed:Number(x.completed||0),revenue:Number(x.revenue||0)})), recent:recent.rows.map((x)=>({id:x.id,client:x.client,type:x.type,status:x.status,date:x.date,value:Number(x.value||0),technician:x.technician||null})) });
+    res.json({ period:startDate?String(req.query.days):'all', entitlements:{financialIndicators:financialEntitled}, stats:{ total:Number(row.total||0), pending:Number(row.pending||0), inProgress:Number(row.in_progress||0), completed:Number(row.completed||0), cancelled:Number(row.cancelled||0), revenue:financialEntitled?revenue:0, paid:financialEntitled?Number(row.paid||0):0, costs:financialEntitled?costs:0, margin:financialEntitled?revenue-costs:0, clients:Number(clients.rows[0]?.total||0), newClients:Number(clients.rows[0]?.new_this_month||0) }, monthly:monthly.rows.reverse().map((x)=>({month:x.month,revenue:financialEntitled?Number(x.revenue||0):0,orders:Number(x.orders||0)})), technicians:technicians.rows.map((x)=>({id:x.id,name:x.name,orders:Number(x.orders||0),completed:Number(x.completed||0),revenue:financialEntitled?Number(x.revenue||0):0})), recent:recent.rows.map((x)=>({id:x.id,client:x.client,type:x.type,status:x.status,date:x.date,value:financialEntitled?Number(x.value||0):0,technician:x.technician||null})) });
   } catch (error) { console.error('Dashboard summary error:',error); res.status(500).json({error:'Erro ao carregar indicadores administrativos'}); }
 });
 
