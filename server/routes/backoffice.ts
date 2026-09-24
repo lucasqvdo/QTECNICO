@@ -85,17 +85,16 @@ router.post('/account/:id/trial', requireBackofficeAuth, async (req, res) => {
     const before = (await client.query('SELECT plan_key,trial_started_at,trial_ends_at,trial_plan_key,trial_ended_at FROM accounts WHERE id=$1 FOR UPDATE', [accountId])).rows[0];
     if (!before) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Conta não encontrada.' }); }
     if (action === 'start') {
-      if (!['essential', 'pro'].includes(before.plan_key)) {
+      if (before.plan_key === 'business') {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'A ativação de trial está disponível para empresas Essencial ou Pro.' });
+        return res.status(409).json({ error: 'Esta empresa já possui o plano Business.' });
       }
-      const active = (await client.query(`SELECT 1 FROM accounts WHERE id=$1
-        AND trial_plan_key='business' AND trial_started_at<=NOW() AND trial_ends_at>NOW() AND trial_ended_at IS NULL`, [accountId])).rows.length > 0;
-      if (active) {
+      const usedTrial = Boolean(before.trial_started_at || before.trial_ends_at || before.trial_plan_key === 'business' || before.trial_ended_at);
+      if (usedTrial) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'Esta empresa já tem um trial ativo. Use Estender +7 dias.' });
+        return res.status(409).json({ error: 'Esta empresa já utilizou o trial Business.' });
       }
-      // Manual grants are an explicit Backoffice exception to the one-time registration offer.
+      // A concessão manual preserva a regra de uso único do trial por empresa.
       const profile = (await client.query('SELECT document FROM company_profiles WHERE account_id=$1', [accountId])).rows[0];
       const document = normalizeCompanyDocument(String(profile?.document || ''));
       if (document) await client.query(`INSERT INTO company_trial_claims (document_hash) VALUES ($1)
