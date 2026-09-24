@@ -39,11 +39,11 @@ router.post('/account/:id/action',requireBackofficeAuth,async(req,res)=>{
   const actor=Number(req.userId); const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    const accountResult=await client.query(`SELECT a.*,s.id AS subscription_id,s.plan_key AS subscription_plan,s.status AS subscription_status,s.amount AS subscription_amount,s.billing_interval,s.currency AS subscription_currency,s.current_period_start,s.current_period_end FROM accounts a LEFT JOIN LATERAL (SELECT * FROM subscriptions sx WHERE sx.account_id=a.id ORDER BY sx.created_at DESC LIMIT 1) s ON TRUE WHERE a.id=$1 FOR UPDATE`,[accountId]);
+    const accountResult=await client.query(`SELECT a.*,s.id AS subscription_id,s.plan_key AS subscription_plan,s.status AS subscription_status,s.amount AS subscription_amount,s.billing_interval,s.currency AS subscription_currency,s.current_period_start,s.current_period_end FROM accounts a LEFT JOIN LATERAL (SELECT * FROM subscriptions sx WHERE sx.account_id=a.id ORDER BY sx.created_at DESC LIMIT 1) s ON TRUE WHERE a.id=$1 FOR UPDATE OF a`,[accountId]);
     const before=accountResult.rows[0]; if(!before) throw new Error('Conta não encontrada.');
     let subscriptionId=before.subscription_id;
     if(!subscriptionId){
-      const plan=(await client.query('SELECT plan_key,amount,currency,billing_interval FROM saas_plans WHERE plan_key=$1 AND active=TRUE LIMIT 1',[before.plan_key||'free'])).rows[0]; if(!plan) throw new Error('Plano atual não encontrado.');
+      const plan=(await client.query('SELECT plan_key,amount,currency,billing_interval FROM saas_plans WHERE plan_key=$1 AND active=TRUE LIMIT 1',[before.plan_key||'essential'])).rows[0]; if(!plan) throw new Error('Plano atual não encontrado.');
       const now=new Date(); const end=new Date(now); end.setMonth(end.getMonth()+1);
       const s=await client.query(`INSERT INTO subscriptions (account_id,plan_key,status,billing_interval,amount,currency,current_period_start,current_period_end,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,[accountId,plan.plan_key,before.subscription_status||'active',plan.billing_interval,plan.amount,plan.currency,now,end,JSON.stringify({createdFrom:'backoffice',actorUserId:actor})]); subscriptionId=s.rows[0].id;
     }

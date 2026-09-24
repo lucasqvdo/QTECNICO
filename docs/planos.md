@@ -31,7 +31,8 @@ montado no `server/index.ts`; os testes o montam apenas para verificar o contrat
 
 - `npm test`: regressões de API, catálogo, permissões, consumo e requisições HTTP
   autenticadas. Os testes de planos usam banco em memória e mocks de transações;
-  não acessam PostgreSQL, Asaas ou contas reais.
+  não acessam Asaas ou contas reais. A regressão do backoffice usa também
+  PostgreSQL embarcado (PGlite) para executar o SQL real das trocas de plano.
 - `npm run build`: compilação do frontend e servidor.
 
 ## Próximas verificações em homologação
@@ -44,3 +45,21 @@ montado no `server/index.ts`; os testes o montam apenas para verificar o contrat
 Uma assinatura pendente não libera recursos por meio do serviço de planos.
 O fluxo Asaas existente ainda precisa de uma auditoria própria para confirmar
 quando o status remoto de assinatura representa pagamento efetivamente confirmado.
+
+## Troca de plano no backoffice
+
+Em `/backoffice`, abra a empresa e use **Ações administrativas → Plano →
+Alterar plano**. A troca funciona nos dois sentidos e atualiza o plano efetivo,
+a assinatura local e o histórico de auditoria. Depois, recarregue o painel da
+empresa para renovar as permissões carregadas no frontend.
+
+O downgrade preserva os usuários existentes; se a equipe exceder o novo limite,
+a criação de novos usuários será bloqueada. O comando não sincroniza preços com
+a assinatura remota do Asaas e não deve ser confundido com uma alteração da
+cobrança no provedor.
+
+A consulta de alteração trava somente a linha de `accounts` (`FOR UPDATE OF a`).
+Um `FOR UPDATE` sem alvo tenta travar também o lado opcional do `LEFT JOIN` e é
+rejeitado pelo PostgreSQL. O teste embarcado cobre Business → Essencial → Pro →
+Business, conta sem assinatura prévia, rejeição de plano inválido, preservação
+da equipe e eventos de auditoria.
