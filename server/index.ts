@@ -277,6 +277,7 @@ async function initDb() {
     await pool.query(`ALTER TABLE company_expenses ADD COLUMN IF NOT EXISTS installment_group_id TEXT`);
     await pool.query(`ALTER TABLE company_expenses ADD COLUMN IF NOT EXISTS installment_number INTEGER NOT NULL DEFAULT 1`);
     await pool.query(`ALTER TABLE company_expenses ADD COLUMN IF NOT EXISTS installment_count INTEGER NOT NULL DEFAULT 1`);
+    await pool.query(`ALTER TABLE company_expenses ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'other'`);
     await pool.query(`CREATE INDEX IF NOT EXISTS company_expenses_account_due_idx ON company_expenses(account_id, due_date DESC)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS company_expenses_installment_group_idx ON company_expenses(account_id, installment_group_id)`);
 
