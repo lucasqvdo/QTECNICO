@@ -33,6 +33,7 @@ export async function migrateQuotes(){
       sort_order INTEGER NOT NULL DEFAULT 0
     )
   `);
+  await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_address TEXT NOT NULL DEFAULT ''`);
   await pool.query('CREATE INDEX IF NOT EXISTS quotes_account_status_idx ON quotes(account_id,status,created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS quotes_client_idx ON quotes(account_id,client_id)');
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS quote_id BIGINT REFERENCES quotes(id) ON DELETE SET NULL');
