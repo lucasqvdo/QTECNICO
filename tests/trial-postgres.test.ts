@@ -155,7 +155,7 @@ test('PostgreSQL: registration, trial lifecycle, billing separation and Backoffi
       assert.equal(subscriptions.length,1); assert.equal(subscriptions[0].plan_key,'pro');
       assert.equal((await db.query("SELECT * FROM account_trial_events WHERE action='start' AND actor_user_id=1")).rows.length,2);
     });
-    await t.test('manual activation rejects Business, unauthorized requests and trial reuse',async()=>{
+    await t.test('manual activation rejects Business, unauthorized requests and reused trials',async()=>{
       const path=`/backoffice/account/${newUser.accountId}/trial`;
       assert.equal((await post(path,{action:'start'},{'Content-Type':'application/json'})).status,401);
       assert.equal((await post(path,{action:'start'},tenantHeaders)).status,403);
