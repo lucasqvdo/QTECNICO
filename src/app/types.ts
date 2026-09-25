@@ -9,6 +9,7 @@ export interface Client {
   address: string;
   phone: string;
   email: string;
+  recurringMaintenanceEnabled?: boolean;
 }
 
 export interface Expense { id: string; label: string; amount: number; }
