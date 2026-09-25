@@ -19,6 +19,8 @@ import creditCardsRouter from './routes/creditCards.js';
 import { migrateCreditCards } from './creditCards.js';
 import preventiveMaintenanceRouter from './routes/preventiveMaintenance.js';
 import { migratePreventiveMaintenance } from './preventiveMaintenance.js';
+import quotesRouter from './routes/quotes.js';
+import { migrateQuotes } from './quotes.js';
 import { applyHttpSecurity } from './httpSecurity.js';
 
 import { existsSync } from 'fs';
@@ -50,6 +52,7 @@ app.use('/api/dashboard', billingRouter);
 app.use('/api/company-expenses', companyExpensesRouter);
 app.use('/api/credit-cards', creditCardsRouter);
 app.use('/api/preventive-maintenance', preventiveMaintenanceRouter);
+app.use('/api/quotes', quotesRouter);
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.path.startsWith('/api')) {
     if (error?.type === 'entity.parse.failed') {
@@ -289,6 +292,7 @@ async function initDb() {
 
     await migrateCreditCards();
     await migratePreventiveMaintenance();
+    await migrateQuotes();
     console.log('✅ Banco de dados pronto');
   } catch (e) {
     console.error('❌ Erro ao inicializar banco:', e);
