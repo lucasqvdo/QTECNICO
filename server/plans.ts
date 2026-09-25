@@ -1,93 +1,108 @@
-/**
- * Definição dos planos. Mantida como config estática (não em tabela no banco)
- * porque muda pouco e assim fica fácil revisar/versionar no código — se um dia
- * precisar editar preço/limite sem deploy, migra pra uma tabela `plans`.
- */
-export type PlanKey = 'free' | 'entry' | 'medium' | 'power';
+import { ACTIVE_TRIAL_SQL, trialInfo } from './trial.js';
+import { pool } from './db.js';
 
 export interface PlanLimits {
-  /** null = ilimitado */
-  maxOrdersPerMonth: number | null;
+  ordersPerMonth: number | null;
   maxPhotosPerAttendance: number | null;
   maxUsers: number;
-}
-
-export interface PlanFeatures {
-  financialReports: boolean;
-  pdfExport: boolean;
-  clientNotifications: boolean;
-  multiUser: boolean;
-  api: boolean;
-  whiteLabel: boolean;
+  [key: string]: unknown;
 }
 
 export interface Plan {
-  key: PlanKey;
+  key: string;
   name: string;
-  priceCents: number; // preço mensal em centavos, 0 = grátis
+  features: string[];
   limits: PlanLimits;
-  features: PlanFeatures;
 }
 
-export const PLANS: Record<PlanKey, Plan> = {
-  free: {
-    key: 'free',
-    name: 'Grátis',
-    priceCents: 0,
-    limits: { maxOrdersPerMonth: 15, maxPhotosPerAttendance: 2, maxUsers: 1 },
-    features: {
-      financialReports: false,
-      pdfExport: false,
-      clientNotifications: false,
-      multiUser: false,
-      api: false,
-      whiteLabel: false,
-    },
-  },
-  entry: {
-    key: 'entry',
-    name: 'Entrada',
-    priceCents: 2900,
-    limits: { maxOrdersPerMonth: null, maxPhotosPerAttendance: null, maxUsers: 1 },
-    features: {
-      financialReports: true,
-      pdfExport: true,
-      clientNotifications: false,
-      multiUser: false,
-      api: false,
-      whiteLabel: false,
-    },
-  },
-  medium: {
-    key: 'medium',
-    name: 'Médio',
-    priceCents: 7900,
-    limits: { maxOrdersPerMonth: null, maxPhotosPerAttendance: null, maxUsers: 5 },
-    features: {
-      financialReports: true,
-      pdfExport: true,
-      clientNotifications: true,
-      multiUser: true,
-      api: false,
-      whiteLabel: false,
-    },
-  },
-  power: {
-    key: 'power',
-    name: 'Power',
-    priceCents: 19900,
-    limits: { maxOrdersPerMonth: null, maxPhotosPerAttendance: null, maxUsers: Infinity as unknown as number },
-    features: {
-      financialReports: true,
-      pdfExport: true,
-      clientNotifications: true,
-      multiUser: true,
-      api: true,
-      whiteLabel: true,
-    },
-  },
-};
+export interface AccountContext {
+  accountId: number;
+  contractedPlanKey: string;
+  trial: ReturnType<typeof trialInfo>;
+  plan: Plan;
+}
 
-export function getPlan(key: string | null | undefined): Plan {
-  return PLANS[(key as PlanKey) in PLANS ? (key as PlanKey) : 'free'];
+function readLimit(value: unknown, nullable = false): number | null {
+  if (nullable && value === null) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error('Limite inválido no catálogo de planos');
+  }
+  return value;
+}
+
+async function loadAccountContext(id: number, byUser: boolean): Promise<AccountContext | null> {
+  // O trial altera somente o acesso. Billing mantém accounts.plan_key como plano contratado.
+  const { rows } = await pool.query(
+    `SELECT a.id AS account_id, a.plan_key AS contracted_plan_key, a.trial_started_at, a.trial_ends_at, a.trial_plan_key, a.trial_ended_at, p.plan_key, p.name, p.features, p.limits
+       FROM accounts a
+       LEFT JOIN saas_plans p ON p.plan_key = CASE WHEN ${ACTIVE_TRIAL_SQL} THEN 'business' ELSE a.plan_key END
+      WHERE a.id = ${byUser ? '(SELECT account_id FROM users WHERE id = $1)' : '$1'}`,
+    [id],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (!row.plan_key || !Array.isArray(row.features) || !row.features.every((feature: unknown) => typeof feature === 'string')) {
+    throw new Error('Plano da conta ausente ou inválido no catálogo');
+  }
+  const limits = row.limits;
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
+    throw new Error('Limites do plano ausentes no catálogo');
+  }
+  return {
+    accountId: Number(row.account_id),
+    contractedPlanKey: row.contracted_plan_key,
+    trial: trialInfo(row),
+    plan: {
+      key: row.plan_key,
+      name: row.name,
+      features: row.features,
+      limits: {
+        ...limits,
+        maxUsers: readLimit(limits.maxUsers) as number,
+        ordersPerMonth: readLimit(limits.ordersPerMonth, true),
+        maxPhotosPerAttendance: readLimit(limits.maxPhotosPerAttendance ?? null, true),
+      },
+    },
+  };
+}
+
+export function getAccountContext(userId: number) {
+  return loadAccountContext(userId, true);
+}
+
+export async function getAccountPlan(accountId: number): Promise<Plan> {
+  const context = await loadAccountContext(accountId, false);
+  if (!context) throw new Error('Conta não encontrada');
+  return context.plan;
+}
+
+export async function getMonthlyOrderUsage(accountId: number, limit: number | null) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM orders o
+      WHERE o.account_id = $1
+        AND o.created_at >= date_trunc('month', NOW())
+        AND o.created_at < date_trunc('month', NOW()) + INTERVAL '1 month'`,
+    [accountId],
+  );
+  const used = Number(rows[0]?.count || 0);
+  return { used, limit, percent: limit !== null && limit > 0 ? Math.round((used / limit) * 100) : 0 };
+}
+
+export async function getAccountEntitlements(accountId: number) {
+  const context = await loadAccountContext(accountId, false);
+  if (!context) throw new Error('Conta não encontrada');
+  const plan = context.plan;
+  const usage = await getMonthlyOrderUsage(accountId, plan.limits.ordersPerMonth);
+  return {
+    planKey: plan.key,
+    contractedPlanKey: context.contractedPlanKey,
+    trial: context.trial,
+    features: plan.features,
+    limits: { ...plan.limits, ordersUsedThisMonth: usage.used, ordersUsagePercent: usage.percent },
+  };
+}
+
+export async function hasAccountFeature(accountId: number, feature: string) {
+  const plan = await getAccountPlan(accountId);
+  return plan.features.includes(feature);
 }

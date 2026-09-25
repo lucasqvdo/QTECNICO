@@ -1,4 +1,7 @@
+import { BACKOFFICE_MEMBERS_SCHEMA_SQL } from './backofficeMembers.js';
 import fs from 'fs';
+import { TRIAL_SCHEMA_SQL } from './trial.js';
+import { INITIAL_PLAN_CATALOG } from './planCatalog.js';
 import pkg from 'pg';
 import { MockPgPool } from './mockDb.js';
 
@@ -161,6 +164,19 @@ async function reconcileMultiTenantSchema() {
   console.log('✅ Schema multiempresa reconciliado');
 }
 
+async function reconcilePlanCatalog() {
+  const tableCheck = await pool.query(`SELECT to_regclass('public.saas_plans') AS table_name`);
+  if (!tableCheck.rows[0]?.table_name) return;
+  for (const [key,name,description,amount,features,limits] of INITIAL_PLAN_CATALOG) {
+    await pool.query(`INSERT INTO saas_plans (plan_key,name,description,amount,currency,billing_interval,active,features,limits) VALUES ($1,$2,$3,$4,'BRL','month',TRUE,$5::jsonb,$6::jsonb) ON CONFLICT (plan_key) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,amount=EXCLUDED.amount,currency=EXCLUDED.currency,billing_interval=EXCLUDED.billing_interval,active=TRUE,features=EXCLUDED.features,limits=EXCLUDED.limits,updated_at=NOW()`,[key,name,description,amount,JSON.stringify(features),JSON.stringify(limits)]);
+  }
+  const legacyKeys = ['free','light','medium','power','professional','enterprise'];
+  await pool.query(`UPDATE accounts SET plan_key='essential' WHERE plan_key = ANY($1::text[])`, [legacyKeys]);
+  await pool.query(`UPDATE subscriptions SET plan_key='essential',updated_at=NOW() WHERE plan_key = ANY($1::text[])`, [legacyKeys]);
+  await pool.query(`DELETE FROM saas_plans WHERE plan_key = ANY($1::text[])`, [legacyKeys]);
+  console.log('✅ Catálogo de planos reconciliado: somente essential, pro e business');
+}
+
 export async function initDbSchema() {
   if (useMockDb) {
     console.warn('⚠️ USE_MOCK_DB=true — usando banco de dados em memória. Não usar em produção.');
@@ -175,4 +191,7 @@ export async function initDbSchema() {
 
   await reconcileWebAuthnSchema();
   await reconcileMultiTenantSchema();
+  await reconcilePlanCatalog();
+  await pool.query(TRIAL_SCHEMA_SQL);
+  await pool.query(BACKOFFICE_MEMBERS_SCHEMA_SQL);
 }

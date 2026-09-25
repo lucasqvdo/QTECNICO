@@ -1,3 +1,4 @@
+import { getAccountEntitlements } from '../plans.js';
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAdmin } from '../auth.js';
@@ -110,6 +111,7 @@ router.get('/billing', requireAdmin, async (req, res) => {
     const refreshed = await pool.query(`SELECT s.*,sp.name AS plan_name,sp.description AS plan_description FROM subscriptions s LEFT JOIN saas_plans sp ON sp.plan_key=s.plan_key WHERE s.account_id=$1 ORDER BY s.created_at DESC LIMIT 1`, [account.account_id]);
     const current = refreshed.rows[0] || subscription;
     return res.json({
+      access: await getAccountEntitlements(account.account_id),
       account: {
         id: account.account_id,
         planKey: account.plan_key,

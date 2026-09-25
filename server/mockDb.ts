@@ -1,8 +1,11 @@
+import { trialInfo } from './trial.js';
 import bcrypt from 'bcryptjs';
+import { INITIAL_PLAN_CATALOG } from './planCatalog.js';
 
 export interface MockStore {
   users: any[];
   accounts: any[];
+  saas_plans: any[];
   clients: any[];
   orders: any[];
   expenses: any[];
@@ -296,6 +299,9 @@ function initMockStore(): MockStore {
   ];
 
   return {
+    saas_plans: INITIAL_PLAN_CATALOG.map(([key, name, description, amount, features, limits]) => ({
+      plan_key: key, name, description, amount, features: [...features], limits: { ...limits },
+    })),
     accounts,
     users,
     clients,
@@ -403,6 +409,21 @@ export class MockPgPool {
       return { rows: [], rowCount: session ? 1 : 0 };
     }
 
+    if (clean.startsWith('select role from backoffice_members')) {
+      return { rows: Number(params[0]) === 1 ? [{role: 'owner'}] : [], rowCount: Number(params[0]) === 1 ? 1 : 0 };
+    }
+
+    // Plano efetivo, com a mesma fonte usada pelo backend PostgreSQL.
+    if (clean.includes('from accounts a left join saas_plans p on p.plan_key =')) {
+      const accountId = clean.includes('(select account_id from users where id = $1)')
+        ? this.store.users.find((u) => u.id === Number(params[0]))?.account_id
+        : Number(params[0]);
+      const account = this.store.accounts.find((a) => a.id === accountId);
+      if (!account) return { rows: [], rowCount: 0 };
+      const plan = this.store.saas_plans.find((p) => p.plan_key === (trialInfo(account).active ? 'business' : account.plan_key));
+      return { rows: [{ ...account, contracted_plan_key: account.plan_key, account_id: account.id, ...(plan || {}) }], rowCount: 1 };
+    }
+
     // --- USERS ---
     if (clean.includes('from users') && clean.includes('lower(email) =')) {
       const email = String(params[0] || '').toLowerCase().trim();
@@ -463,6 +484,11 @@ export class MockPgPool {
       const ids: number[] = Array.isArray(params[1]) ? params[1] : [];
       const rows = this.store.users.filter((u) => u.account_id === accountId && ids.includes(Number(u.id)));
       return { rows, rowCount: rows.length };
+    }
+
+    if (clean === 'select count(*)::int as count from users where account_id = $1') {
+      const count = this.store.users.filter((u) => u.account_id === Number(params[0])).length;
+      return { rows: [{ count }], rowCount: 1 };
     }
 
     if (clean.includes('from users') && clean.includes('where account_id = $1')) {
@@ -533,23 +559,6 @@ export class MockPgPool {
     }
 
     // --- ACCOUNTS & PLAN LIMITS ---
-    if (clean.includes('join accounts a on a.id = u.account_id where u.id = $1')) {
-      const userId = Number(params[0]);
-      const user = this.store.users.find((u) => u.id === userId);
-      const accountId = user?.account_id ?? 1;
-      const account = this.store.accounts.find((a) => a.id === accountId) || this.store.accounts[0];
-      return {
-        rows: [
-          {
-            account_id: account.id,
-            plan_key: account.plan_key || 'pro',
-            subscription_status: account.subscription_status || 'active',
-          },
-        ],
-        rowCount: 1,
-      };
-    }
-
     if (clean.startsWith('insert into accounts')) {
       const id = this.store.accounts.length + 1;
       this.store.accounts.push({
@@ -623,7 +632,11 @@ export class MockPgPool {
     // --- ORDERS ---
     if (clean.includes('count(*)::int as count from orders o where o.account_id = $1')) {
       const accountId = Number(params[0]);
-      const count = this.store.orders.filter((o) => o.account_id === accountId).length;
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const count = this.store.orders.filter((o) => o.account_id === accountId
+        && new Date(o.created_at) >= start && new Date(o.created_at) < end).length;
       return { rows: [{ count }], rowCount: 1 };
     }
 

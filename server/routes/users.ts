@@ -1,10 +1,18 @@
+import { getAccountContext } from '../plans.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
+import { getAccountEntitlements } from '../plans.js';
 import { requireAuth, requireAdmin } from '../auth.js';
 import { getDownloadUrl } from '../storage.js';
 
 const router = Router();
+
+router.get('/trial', requireAuth, async (req, res) => {
+  const context = await getAccountContext(req.userId!);
+  if (!context) return res.status(404).json({ error: 'Conta não encontrada.' });
+  res.json({ trial: context.trial, contractedPlanKey: context.contractedPlanKey, effectivePlanKey: context.plan.key });
+});
 const MIN_PASSWORD_LENGTH = 8;
 
 async function getAdminAccountId(userId: number) {
@@ -51,7 +59,10 @@ router.get('/company-profile', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/admin/access', requireAdmin, async (_req, res) => res.json({ allowed: true }));
+router.get('/admin/access', requireAdmin, async (req, res) => {
+  try { const accountId = await getAdminAccountId(req.userId); if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' }); const entitlements = await getAccountEntitlements(accountId); res.json({ allowed: true, ...entitlements }); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'Erro ao carregar permissões do plano' }); }
+});
 
 router.get('/admin/company-profile', requireAdmin, async (req, res) => {
   try {
@@ -98,6 +109,9 @@ router.post('/admin/team', requireAdmin, async (req, res) => {
   try {
     const accountId = await getAdminAccountId(req.userId);
     if (!accountId) return res.status(403).json({ error: 'Conta administrativa sem empresa associada' });
+    const entitlements = await getAccountEntitlements(accountId);
+    const userCount = Number((await pool.query('SELECT COUNT(*)::int AS count FROM users WHERE account_id = $1', [accountId])).rows[0]?.count || 0);
+    if (userCount >= entitlements.limits.maxUsers) return res.status(403).json({ error: `Seu plano permite até ${entitlements.limits.maxUsers} usuários. Faça upgrade para adicionar mais acessos.`, code: 'PLAN_USER_LIMIT', planKey: entitlements.planKey, limit: entitlements.limits.maxUsers });
     const exists = await pool.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     if (exists.rows.length) return res.status(409).json({ error: 'E-mail já cadastrado' });
     const hash = await bcrypt.hash(password, 10);
