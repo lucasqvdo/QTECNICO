@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 
 export async function migratePreventiveMaintenance() {
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS recurring_maintenance_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS preventive_maintenance_plans (
       id BIGSERIAL PRIMARY KEY,
