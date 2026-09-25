@@ -14,6 +14,7 @@ import webauthnRouter from './routes/webauthn.js';
 import dashboardRouter from './routes/dashboard.js';
 import backofficeRouter from './routes/backoffice.js';
 import billingRouter from './routes/billing.js';
+import companyExpensesRouter from './routes/companyExpenses.js';
 import { applyHttpSecurity } from './httpSecurity.js';
 
 import { existsSync } from 'fs';
@@ -42,6 +43,7 @@ app.use('/api/auth/webauthn', webauthnRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/dashboard/backoffice', backofficeRouter);
 app.use('/api/dashboard', billingRouter);
+app.use('/api/company-expenses', companyExpensesRouter);
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.path.startsWith('/api')) {
     if (error?.type === 'entity.parse.failed') {
@@ -254,6 +256,25 @@ async function initDb() {
       WHERE o.payment_status = 'paid'
         AND NOT EXISTS (SELECT 1 FROM order_payments op WHERE op.order_id = o.id)
     `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS company_expenses (
+        id BIGSERIAL PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'Outros',
+        supplier TEXT DEFAULT '',
+        amount NUMERIC(14,2) NOT NULL CHECK (amount > 0),
+        due_date DATE NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid')),
+        paid_at DATE,
+        recurrence TEXT NOT NULL DEFAULT 'once' CHECK (recurrence IN ('once','monthly','quarterly','yearly')),
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS company_expenses_account_due_idx ON company_expenses(account_id, due_date DESC)`);
 
     console.log('✅ Banco de dados pronto');
   } catch (e) {
