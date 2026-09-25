@@ -155,7 +155,7 @@ test('PostgreSQL: registration, trial lifecycle, billing separation and Backoffi
       assert.equal(subscriptions.length,1); assert.equal(subscriptions[0].plan_key,'pro');
       assert.equal((await db.query("SELECT * FROM account_trial_events WHERE action='start' AND actor_user_id=1")).rows.length,2);
     });
-    await t.test('manual activation rejects Business and unauthorized requests but can renew an ended trial',async()=>{
+    await t.test('manual activation rejects Business, unauthorized requests and trial reuse',async()=>{
       const path=`/backoffice/account/${newUser.accountId}/trial`;
       assert.equal((await post(path,{action:'start'},{'Content-Type':'application/json'})).status,401);
       assert.equal((await post(path,{action:'start'},tenantHeaders)).status,403);
@@ -164,14 +164,11 @@ test('PostgreSQL: registration, trial lifecycle, billing separation and Backoffi
       assert.equal((await post(path,{action:'start'})).status,409);
       assert.equal((await getAccountEntitlements(newUser.accountId)).trial.status,'ended');
       await db.query("UPDATE accounts SET plan_key='essential' WHERE id=$1",[newUser.accountId]);
-      assert.equal((await post(path,{action:'start'})).status,200);
+      assert.equal((await post(path,{action:'start'})).status,409);
       const access=await getAccountEntitlements(newUser.accountId);
-      assert.equal(access.trial.status,'active'); assert.equal(access.trial.daysRemaining,14);
+      assert.equal(access.trial.status,'ended');
       assert.equal(access.contractedPlanKey,'essential');
       assert.equal((await post('/backoffice/account/99999/trial',{action:'start'})).status,404);
-      await db.query("UPDATE accounts SET trial_ends_at=NOW() - INTERVAL '1 second' WHERE id=$1",[newUser.accountId]);
-      assert.equal((await post(path,{action:'start'})).status,200);
-      assert.equal((await getAccountEntitlements(newUser.accountId)).trial.daysRemaining,14);
     });
     await t.test('only owner can add/remove collaborators; removal invalidates existing Backoffice access',async()=>{
       assert.equal((await post('/backoffice/collaborators',{email:'collaborator@example.test',action:'add'},tenantHeaders)).status,403);
