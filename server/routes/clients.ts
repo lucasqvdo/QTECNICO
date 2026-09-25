@@ -23,6 +23,7 @@ router.get('/', requireAuth, async (req, res) => {
     res.json(result.rows.map((c: any) => ({
       id: c.id, name: c.name, document: c.document,
       address: c.address, phone: c.phone, email: c.email,
+      recurringMaintenanceEnabled: Boolean(c.recurring_maintenance_enabled),
     })));
   } catch (e) {
     console.error(e);
@@ -36,19 +37,19 @@ router.post('/', requireAdmin, async (req, res) => {
   const id = c.id || Date.now().toString();
   try {
     const accountId = await getAccountId(userId);
-    const existing = await pool.query('SELECT id, name, document, address, phone, email FROM clients WHERE id=$1 AND account_id=$2', [id, accountId]);
+    const existing = await pool.query('SELECT id, name, document, address, phone, email, recurring_maintenance_enabled FROM clients WHERE id=$1 AND account_id=$2', [id, accountId]);
     if (existing.rows[0]) {
       await pool.query(
-        'UPDATE clients SET name=$1, document=$2, address=$3, phone=$4, email=$5 WHERE id=$6 AND account_id=$7',
-        [c.name, c.document || '', c.address || '', c.phone || '', c.email || '', id, accountId]
+        'UPDATE clients SET name=$1, document=$2, address=$3, phone=$4, email=$5, recurring_maintenance_enabled=$6 WHERE id=$7 AND account_id=$8',
+        [c.name, c.document || '', c.address || '', c.phone || '', c.email || '', Boolean(c.recurringMaintenanceEnabled), id, accountId]
       );
-      return res.status(200).json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '' });
+      return res.status(200).json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '', recurringMaintenanceEnabled: Boolean(c.recurringMaintenanceEnabled) });
     }
     await pool.query(
-      'INSERT INTO clients (id, account_id, user_id, name, document, address, phone, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [id, accountId, userId, c.name, c.document || '', c.address || '', c.phone || '', c.email || '']
+      'INSERT INTO clients (id, account_id, user_id, name, document, address, phone, email, recurring_maintenance_enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [id, accountId, userId, c.name, c.document || '', c.address || '', c.phone || '', c.email || '', Boolean(c.recurringMaintenanceEnabled)]
     );
-    res.status(201).json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '' });
+    res.status(201).json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '', recurringMaintenanceEnabled: Boolean(c.recurringMaintenanceEnabled) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Erro ao criar cliente' });
@@ -62,18 +63,19 @@ router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const accountId = await getAccountId(userId);
     const result = await pool.query(
-      `UPDATE clients SET name=$1, document=$2, address=$3, phone=$4, email=$5
-       WHERE id=$6 AND account_id=$7`,
-      [c.name, c.document || '', c.address || '', c.phone || '', c.email || '', id, accountId]
+      `UPDATE clients SET name=$1, document=$2, address=$3, phone=$4, email=$5, recurring_maintenance_enabled=$6
+       WHERE id=$7 AND account_id=$8`,
+      [c.name, c.document || '', c.address || '', c.phone || '', c.email || '', Boolean(c.recurringMaintenanceEnabled), id, accountId]
     );
     if (result.rowCount === 0) {
       // Upsert: if client wasn't in DB yet, insert it with the specified ID
       await pool.query(
-        'INSERT INTO clients (id, account_id, user_id, name, document, address, phone, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [id, accountId, userId, c.name, c.document || '', c.address || '', c.phone || '', c.email || '']
+        'INSERT INTO clients (id, account_id, user_id, name, document, address, phone, email, recurring_maintenance_enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+        [id, accountId, userId, c.name, c.document || '', c.address || '', c.phone || '', c.email || '', Boolean(c.recurringMaintenanceEnabled)]
       );
     }
-    res.json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '' });
+    if (!c.recurringMaintenanceEnabled) await pool.query('UPDATE preventive_maintenance_plans SET active=FALSE, updated_at=NOW() WHERE client_id=$1 AND account_id=$2 AND active=TRUE', [id, accountId]);
+    res.json({ id, name: c.name, document: c.document || '', address: c.address || '', phone: c.phone || '', email: c.email || '', recurringMaintenanceEnabled: Boolean(c.recurringMaintenanceEnabled) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Erro ao atualizar cliente' });
