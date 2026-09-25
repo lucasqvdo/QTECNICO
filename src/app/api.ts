@@ -68,6 +68,10 @@ export interface CardInvoiceDetail extends CardInvoice { items:CardInvoiceItem[]
 export interface BillingPlan{id:number;key:string;name:string;description:string;amount:number;currency:string;billingInterval:string;active:boolean;features:string[];limits:Record<string,any>;}
 export interface BillingPayment{id:number;amount:number;currency:string;status:string;dueAt:string|null;paidAt:string|null;refundedAt:string|null;provider:string|null;providerPaymentId:string|null;invoiceUrl:string|null;failureReason:string|null;createdAt:string;}
 export interface BillingSubscription{id:number;planKey:string;planName:string;status:string;amount:number;currency:string;billingInterval:string;trialStartAt:string|null;trialEndAt:string|null;currentPeriodStart:string|null;currentPeriodEnd:string|null;canceledAt:string|null;provider:string|null;providerSubscriptionId:string|null;}
+export type QuoteStatus='draft'|'sent'|'approved'|'rejected'|'expired'|'converted';
+export interface QuoteItem{id?:number;description:string;itemType:'service'|'material'|'other';quantity:number;unitPrice:number;}
+export interface Quote{id:number;number:string;clientId:string;clientName:string;status:QuoteStatus;issueDate:string;validUntil:string|null;title:string;description:string;discount:number;notes:string;orderId:string|null;subtotal:number;total:number;items?:QuoteItem[];}
+export type QuoteInput={clientId:string;issueDate:string;validUntil:string|null;title:string;description:string;discount:number;notes:string;items:QuoteItem[];};
 export interface PreventivePlan{id:number;clientId:string;clientName?:string;name:string;description:string;intervalDays:number;firstScheduledDate:string;nextScheduledDate:string;active:boolean;openOrderId:string|null;}
 export type PreventivePlanInput={clientId:string;name:string;description:string;intervalDays:number;firstScheduledDate:string;active:boolean;};
 export interface PreventiveRadar{overdue:PreventivePlan[];next7Days:PreventivePlan[];next30Days:PreventivePlan[];}
@@ -114,6 +118,11 @@ export const api={
  createCompanyExpense:(expense:CompanyExpenseInput)=>request<CompanyExpense[]>('/company-expenses',{method:'POST',body:JSON.stringify(expense)}),
  updateCompanyExpense:(id:number,expense:CompanyExpenseInput)=>request<CompanyExpense>(`/company-expenses/${id}`,{method:'PUT',body:JSON.stringify(expense)}),
  deleteCompanyExpense:(id:number)=>request<{success:boolean}>(`/company-expenses/${id}`,{method:'DELETE'}),
+  getQuotes:()=>request<Quote[]>('/quotes'),
+  getQuote:(id:number)=>request<Quote>(`/quotes/${id}`),
+  createQuote:(data:QuoteInput)=>request<Quote>('/quotes',{method:'POST',body:JSON.stringify(data)}),
+  setQuoteStatus:(id:number,status:Exclude<QuoteStatus,'converted'>)=>request<Quote>(`/quotes/${id}/status`,{method:'PATCH',body:JSON.stringify({status})}),
+  convertQuote:(id:number)=>request<{orderId:string;alreadyExists:boolean}>(`/quotes/${id}/convert`,{method:'POST'}),
   getPreventivePlans:(clientId:string)=>request<PreventivePlan[]>(`/preventive-maintenance/client/${encodeURIComponent(clientId)}`),
   createPreventivePlan:(data:PreventivePlanInput)=>request<PreventivePlan>('/preventive-maintenance',{method:'POST',body:JSON.stringify(data)}),
   updatePreventivePlan:(id:number,data:Omit<PreventivePlanInput,'clientId'|'firstScheduledDate'>)=>request<PreventivePlan>(`/preventive-maintenance/${id}`,{method:'PUT',body:JSON.stringify(data)}),
