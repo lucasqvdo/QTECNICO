@@ -1,10 +1,10 @@
 import TrialBanner from './TrialBanner';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BarChart3, Building2, CalendarDays, Clock3, ClipboardList, CreditCard, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
+import { BarChart3, Building2, CalendarDays, Clock3, ClipboardList, FileText, CreditCard, DollarSign, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Users, Wrench, X } from 'lucide-react';
 import { api } from './api';
 import ConnectivityStatus from './components/ConnectivityStatus';
 
-export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'orders' | 'agenda' | 'finance' | 'company' | 'billing';
+export type AdminSectionV2 = 'dashboard' | 'clients' | 'team' | 'quotes' | 'orders' | 'agenda' | 'finance' | 'company' | 'billing';
 export type TechnicianSectionV2 = 'home' | 'orders' | 'attendances' | 'agenda' | 'profile';
 export type ShellMode = 'admin' | 'technician';
 
@@ -12,6 +12,7 @@ type NavItem = readonly [string, typeof BarChart3, string, string];
 
 const ADMIN_NAV: NavItem[] = [
   ['dashboard', BarChart3, 'Dashboard', 'Visão geral do negócio'],
+  ['quotes', FileText, 'Orçamentos', 'Propostas e aprovações'],
   ['orders', ClipboardList, 'Ordens de Serviço', 'Operação e chamados'],
   ['clients', Users, 'Clientes', 'Base comercial'],
   ['team', Wrench, 'Técnicos / Equipe', 'Pessoas e acessos'],
