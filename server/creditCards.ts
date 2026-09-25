@@ -94,7 +94,7 @@ export function itemInput(body: any) {
   const category = requiredText(body?.category, 120, 'Categoria');
   const purchaseDate = validDate(body?.purchaseDate);
   const amount = body?.amount;
-  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || amount > 999999999999.99 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.01) throw new CardInputError('Informe um valor positivo com até duas casas decimais.');
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || amount > 999999999999.99 || !/^\d+(\.\d{1,2})?$/.test(String(amount))) throw new CardInputError('Informe um valor positivo com até duas casas decimais.');
   return [description, category, purchaseDate, amount];
 }
 

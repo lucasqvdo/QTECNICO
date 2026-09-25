@@ -79,7 +79,11 @@ router.post('/:cardId/invoices', async (req, res) => {
   res.status(201).json(result);
 });
 router.get('/invoices/:invoiceId', async (req, res) => {
-  res.json(await detail(pool, res.locals.accountId, positiveId(req.params.invoiceId)));
+  const a = res.locals.accountId, id = positiveId(req.params.invoiceId);
+  res.json(await transaction(async db => {
+    await lockInvoice(db, a, id);
+    return detail(db, a, id);
+  }));
 });
 router.patch('/invoices/:invoiceId/payment', async (req, res) => {
   const a = res.locals.accountId, id = positiveId(req.params.invoiceId);

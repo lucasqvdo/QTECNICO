@@ -17,7 +17,7 @@ test('invoice dates and precise input validation', () => {
   assert.equal(invoiceDates('2028-02',20,31).dueDate,'2028-02-29');
   assert.equal(invoiceDates('2026-02',30,31).closingDate,'2026-01-30');
   for (const month of ['2026-13','2026-00','x','2026-2']) assert.throws(()=>invoiceDates(month,20,27));
-  for (const amount of [0,-1,NaN,Infinity,1.001,'1',1e12]) assert.throws(()=>itemInput({description:'Test',category:'Outros',purchaseDate:'2026-09-25',amount}));
+  for (const amount of [0,-1,NaN,Infinity,1.001,1.00001,'1',1e12]) assert.throws(()=>itemInput({description:'Test',category:'Outros',purchaseDate:'2026-09-25',amount}));
   assert.throws(()=>itemInput({description:'Test',category:'Outros',purchaseDate:'2026-02-30',amount:1}));
 });
 
@@ -105,6 +105,11 @@ test('PostgreSQL: cards, monthly invoices, single payable, isolation and existin
       await call('POST',`/cards/invoices/${invoice.id}/items`,{...purchase,amount:-1},owner,400);
       await call('DELETE',`/cards/invoices/${invoice.id}/items/999999`,undefined,owner,404);
       assert.equal((await call('GET',`/cards/invoices/${invoice.id}`)).amount,35.45);
+    });
+    await t.test('failed total update rolls back the item insert',async()=>{
+      const before=await call('GET',`/cards/invoices/${invoice.id}`);
+      await call('POST',`/cards/invoices/${invoice.id}/items`,{...purchase,amount:999999999999.99},owner,400);
+      assert.deepEqual(await call('GET',`/cards/invoices/${invoice.id}`),before);
     });
     await t.test('prevent payable edits/deletion, freeze paid invoice and reopen explicitly',async()=>{
       const expense=(await call('GET','/expenses')).find((e:any)=>e.creditCardInvoiceId===invoice.id);
