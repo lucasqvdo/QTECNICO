@@ -70,8 +70,8 @@ export interface BillingPayment{id:number;amount:number;currency:string;status:s
 export interface BillingSubscription{id:number;planKey:string;planName:string;status:string;amount:number;currency:string;billingInterval:string;trialStartAt:string|null;trialEndAt:string|null;currentPeriodStart:string|null;currentPeriodEnd:string|null;canceledAt:string|null;provider:string|null;providerSubscriptionId:string|null;}
 export type QuoteStatus='draft'|'sent'|'approved'|'rejected'|'expired'|'converted';
 export interface QuoteItem{id?:number;description:string;itemType:'service'|'material'|'other';quantity:number;unitPrice:number;}
-export interface Quote{id:number;number:string;clientId:string;clientName:string;status:QuoteStatus;issueDate:string;validUntil:string|null;title:string;description:string;discount:number;notes:string;orderId:string|null;subtotal:number;total:number;items?:QuoteItem[];}
-export type QuoteInput={clientId:string;issueDate:string;validUntil:string|null;title:string;description:string;discount:number;notes:string;items:QuoteItem[];};
+export interface Quote{id:number;number:string;clientId:string;clientName:string;status:QuoteStatus;issueDate:string;validUntil:string|null;title:string;description:string;discount:number;notes:string;serviceAddress:string;orderId:string|null;subtotal:number;total:number;items?:QuoteItem[];}
+export type QuoteInput={clientId:string;issueDate:string;validUntil:string|null;title:string;description:string;discount:number;notes:string;serviceAddress:string;items:QuoteItem[];};
 export interface PreventivePlan{id:number;clientId:string;clientName?:string;name:string;description:string;intervalDays:number;firstScheduledDate:string;nextScheduledDate:string;active:boolean;openOrderId:string|null;}
 export type PreventivePlanInput={clientId:string;name:string;description:string;intervalDays:number;firstScheduledDate:string;active:boolean;};
 export interface PreventiveRadar{overdue:PreventivePlan[];next7Days:PreventivePlan[];next30Days:PreventivePlan[];}
