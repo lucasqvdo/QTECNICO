@@ -15,6 +15,8 @@ import dashboardRouter from './routes/dashboard.js';
 import backofficeRouter from './routes/backoffice.js';
 import billingRouter from './routes/billing.js';
 import companyExpensesRouter from './routes/companyExpenses.js';
+import creditCardsRouter from './routes/creditCards.js';
+import { migrateCreditCards } from './creditCards.js';
 import { applyHttpSecurity } from './httpSecurity.js';
 
 import { existsSync } from 'fs';
@@ -44,6 +46,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/dashboard/backoffice', backofficeRouter);
 app.use('/api/dashboard', billingRouter);
 app.use('/api/company-expenses', companyExpensesRouter);
+app.use('/api/credit-cards', creditCardsRouter);
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.path.startsWith('/api')) {
     if (error?.type === 'entity.parse.failed') {
@@ -281,6 +284,7 @@ async function initDb() {
     await pool.query(`CREATE INDEX IF NOT EXISTS company_expenses_account_due_idx ON company_expenses(account_id, due_date DESC)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS company_expenses_installment_group_idx ON company_expenses(account_id, installment_group_id)`);
 
+    await migrateCreditCards();
     console.log('✅ Banco de dados pronto');
   } catch (e) {
     console.error('❌ Erro ao inicializar banco:', e);
