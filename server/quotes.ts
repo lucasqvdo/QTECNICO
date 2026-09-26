@@ -34,6 +34,18 @@ export async function migrateQuotes(){
     )
   `);
   await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_address TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quote_images (
+      id BIGSERIAL PRIMARY KEY,
+      quote_id BIGINT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+      storage_key TEXT NOT NULL,
+      caption TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS quote_images_quote_idx ON quote_images(quote_id,sort_order,id)');
+
   await pool.query('CREATE INDEX IF NOT EXISTS quotes_account_status_idx ON quotes(account_id,status,created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS quotes_client_idx ON quotes(account_id,client_id)');
   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS quote_id BIGINT REFERENCES quotes(id) ON DELETE SET NULL');
