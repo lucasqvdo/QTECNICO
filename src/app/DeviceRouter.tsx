@@ -11,6 +11,7 @@ const BackofficeAccount = lazy(() => import("./BackofficeAccount"));
 const BackofficeBilling = lazy(() => import("./BackofficeBilling"));
 const PricingPage = lazy(() => import("./PricingPage"));
 const SubscriptionBilling = lazy(() => import("./SubscriptionBilling"));
+const ClientPortal = lazy(() => import("./ClientPortal"));
 
 type Workspace = 'admin' | 'technician' | 'app';
 
@@ -127,6 +128,15 @@ export default function DeviceRouter() {
       window.removeEventListener("online", handleOnline);
     };
   }, []);
+
+  const portalMatch = pathname.match(/^\/portal\/([A-Za-z0-9_-]+)\/?$/);
+  if (portalMatch) {
+    return (
+      <Suspense fallback={<WorkspaceLoading />}>
+        <ClientPortal publicId={portalMatch[1]} />
+      </Suspense>
+    );
+  }
 
   if (pathname === '/pricing' || pathname === '/pricing/') {
     return (
