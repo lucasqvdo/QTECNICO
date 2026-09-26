@@ -14,7 +14,7 @@ const upload = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 });
 
-const ALLOWED_FOLDERS = new Set(['attendances', 'signatures', 'profiles']);
+const ALLOWED_FOLDERS = new Set(['attendances', 'signatures', 'profiles', 'quotes']);
 
 router.post('/', requireAuth, upload.single('file'), async (req, res) => {
   const file = req.file;
